@@ -26,6 +26,11 @@ pub fn run(cli: &Cli) -> i32 {
             target_triple,
         } => run_compile(source, emit, output.as_deref(), target_triple.as_deref()),
         Command::Inspect { source } => run_inspect(source),
+        Command::Import {
+            source,
+            output,
+            weights_dir,
+        } => run_import(source, output.as_deref(), weights_dir),
         Command::Test {
             source,
             input,
@@ -140,6 +145,25 @@ fn run_compile(source: &Path, emit_fmt: &EmitFormat, output: Option<&Path>, targ
     }
 
     eprintln!("nnc: wrote {}", output_path.display());
+    0
+}
+
+fn run_import(source: &Path, output: Option<&Path>, weights_dir: &Path) -> i32 {
+    let output_path = output
+        .map(|p| p.to_path_buf())
+        .unwrap_or_else(|| source.with_extension("nnl"));
+
+    if let Err(e) = crate::import::import_onnx(source, &output_path, weights_dir) {
+        eprintln!("nnc: import failed: {e}");
+        return 1;
+    }
+
+    eprintln!(
+        "nnc: imported {} -> {} (weights in {})",
+        source.display(),
+        output_path.display(),
+        weights_dir.display()
+    );
     0
 }
 

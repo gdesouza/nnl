@@ -3,6 +3,7 @@ mod diag;
 mod driver;
 
 mod codegen;
+mod import;
 mod ir;
 mod sema;
 mod syntax;

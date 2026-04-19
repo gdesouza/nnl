@@ -34,6 +34,20 @@ pub enum Command {
         source: PathBuf,
     },
 
+    /// Import an ONNX model into NNL format
+    Import {
+        /// Path to the ONNX model file
+        source: PathBuf,
+
+        /// Output .nnl file path
+        #[arg(short, long)]
+        output: Option<PathBuf>,
+
+        /// Directory to write extracted weight files
+        #[arg(long, default_value = "./weights")]
+        weights_dir: PathBuf,
+    },
+
     /// Test a compiled model against known input/output pairs
     Test {
         /// Path to the .nnl source file

@@ -1,1 +1,11 @@
 /target
+/.venv
+model_bin
+
+# Generated import test artifacts
+examples/import_test/model.onnx
+examples/import_test/model.nnl
+examples/import_test/model_bin
+examples/import_test/weights/
+examples/import_test/input.npy
+examples/import_test/expected.npy
