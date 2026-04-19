@@ -12,6 +12,7 @@ thiserror = "2"
 indexmap = "2"
 petgraph = "0.7"
 npyz = { version = "0.9", features = ["npz"] }
+tempfile = "3"
 
 [dev-dependencies]
 insta = "1"

@@ -1,15 +1,30 @@
-use crate::cli::{Cli, Command};
+use std::path::{Path, PathBuf};
+
+use crate::cli::{Cli, Command, EmitFormat};
+use crate::codegen::{emit, toolchain};
 use crate::diag::NncError;
-use crate::ir::{graph, lower};
+use crate::ir::graph::{self, GraphInfo};
+use crate::ir::lower;
+use crate::ir::model::Model;
 use crate::sema::{memory, shapes, validate};
 use crate::syntax::{lexer, parser};
+use crate::weights;
+
+/// Result of the frontend pipeline (lex → parse → lower → validate → graph → shapes).
+struct FrontendResult {
+    model: Model,
+    graph_info: GraphInfo,
+    shape_info: shapes::ShapeInfo,
+}
 
 pub fn run(cli: &Cli) -> i32 {
     match &cli.command {
-        Command::Compile { source, .. } => {
-            eprintln!("nnc: compile not yet implemented for {:?}", source);
-            1
-        }
+        Command::Compile {
+            source,
+            emit,
+            output,
+            ..
+        } => run_compile(source, emit, output.as_deref()),
         Command::Inspect { source } => run_inspect(source),
         Command::Test { source, .. } => {
             eprintln!("nnc: test not yet implemented for {:?}", source);
@@ -18,84 +33,122 @@ pub fn run(cli: &Cli) -> i32 {
     }
 }
 
-fn run_inspect(source: &std::path::Path) -> i32 {
+/// Run the frontend pipeline shared by inspect and compile.
+fn run_frontend(source: &Path) -> Result<FrontendResult, i32> {
     let filename = source.display().to_string();
-    let content = match std::fs::read_to_string(source) {
-        Ok(c) => c,
-        Err(e) => {
-            eprintln!("nnc: cannot read {filename}: {e}");
-            return 1;
-        }
-    };
+    let content = std::fs::read_to_string(source).map_err(|e| {
+        eprintln!("nnc: cannot read {filename}: {e}");
+        1
+    })?;
 
-    // Phase 1: Lex + Parse
-    let tokens = match lexer::tokenize(&content) {
-        Ok(t) => t,
-        Err(e) => {
-            let err = NncError::lex(e.span, &filename, &content);
-            eprintln!("{:?}", miette::Report::new(err));
-            return 1;
-        }
-    };
+    let tokens = lexer::tokenize(&content).map_err(|e| {
+        let err = NncError::lex(e.span, &filename, &content);
+        eprintln!("{:?}", miette::Report::new(err));
+        1
+    })?;
 
-    let file = match parser::parse(&tokens, &content) {
-        Ok(f) => f,
-        Err(e) => {
-            let err = NncError::syntax(e.message, e.span, &filename, &content);
-            eprintln!("{:?}", miette::Report::new(err));
-            return 1;
-        }
-    };
+    let file = parser::parse(&tokens, &content).map_err(|e| {
+        let err = NncError::syntax(e.message, e.span, &filename, &content);
+        eprintln!("{:?}", miette::Report::new(err));
+        1
+    })?;
 
-    // Phase 2: Lower to IR
-    let model = match lower::lower(&file) {
-        Ok(m) => m,
-        Err(e) => {
-            let err = NncError::syntax(e.message, e.span, &filename, &content);
-            eprintln!("{:?}", miette::Report::new(err));
-            return 1;
-        }
-    };
+    let model = lower::lower(&file).map_err(|e| {
+        let err = NncError::syntax(e.message, e.span, &filename, &content);
+        eprintln!("{:?}", miette::Report::new(err));
+        1
+    })?;
 
-    // Semantic validation
-    let warnings = match validate::validate(&model) {
-        Ok(w) => w,
-        Err(e) => {
-            eprintln!("{}: {}: {}", filename, e.code, e.message);
-            return 1;
-        }
-    };
+    let warnings = validate::validate(&model).map_err(|e| {
+        eprintln!("{}: {}: {}", filename, e.code, e.message);
+        1
+    })?;
     for w in &warnings {
         eprintln!("{filename}: {w}");
     }
 
-    // Build graph + topo sort
-    let graph_info = match graph::build_graph(&model) {
-        Ok(g) => g,
-        Err(e) => {
-            eprintln!("{}: {}: {}", filename, e.code, e.message);
-            return 1;
-        }
-    };
+    let graph_info = graph::build_graph(&model).map_err(|e| {
+        eprintln!("{}: {}: {}", filename, e.code, e.message);
+        1
+    })?;
     for w in &graph_info.warnings {
         eprintln!("{filename}: {w}");
     }
 
-    // Shape inference
-    let shape_info = match shapes::infer_shapes(&model, &graph_info.topo_order) {
-        Ok(s) => s,
+    let shape_info = shapes::infer_shapes(&model, &graph_info.topo_order).map_err(|e| {
+        eprintln!("{}: {}: {}", filename, e.code, e.message);
+        1
+    })?;
+
+    Ok(FrontendResult {
+        model,
+        graph_info,
+        shape_info,
+    })
+}
+
+fn run_inspect(source: &Path) -> i32 {
+    let fr = match run_frontend(source) {
+        Ok(r) => r,
+        Err(code) => return code,
+    };
+
+    let mem_info = memory::estimate_memory(&fr.model, &fr.shape_info.shapes);
+    print_inspect(&fr.model, &fr.shape_info, &mem_info);
+    0
+}
+
+fn run_compile(source: &Path, emit_fmt: &EmitFormat, output: Option<&Path>) -> i32 {
+    let fr = match run_frontend(source) {
+        Ok(r) => r,
+        Err(code) => return code,
+    };
+
+    // Load weights
+    let weight_set = match weights::load_and_validate(&fr.model, &fr.shape_info) {
+        Ok(w) => w,
         Err(e) => {
-            eprintln!("{}: {}: {}", filename, e.code, e.message);
+            eprintln!("{}: {}: {}", source.display(), e.code, e.message);
             return 1;
         }
     };
 
-    // Memory estimation
-    let mem_info = memory::estimate_memory(&model, &shape_info.shapes);
+    // Generate C source and header
+    let c_header = emit::emit_header(&fr.model, &fr.shape_info);
+    let c_source = emit::emit_source(
+        &fr.model,
+        &fr.shape_info,
+        &weight_set,
+        &fr.graph_info.topo_order,
+    );
 
-    // Print inspect output
-    print_inspect(&model, &shape_info, &mem_info);
+    // Determine output path
+    let default_output = default_output_path(source, emit_fmt);
+    let output_path = output.map(|p| p.to_path_buf()).unwrap_or(default_output);
+
+    // Invoke toolchain
+    let model_name = fr.model.name.replace(|c: char| !c.is_ascii_alphanumeric(), "_");
+    if let Err(e) = toolchain::compile(&c_source, &c_header, emit_fmt, &output_path, &model_name) {
+        eprintln!("nnc: {}", e.message);
+        return 1;
+    }
+
+    eprintln!("nnc: wrote {}", output_path.display());
     0
+}
+
+fn default_output_path(source: &Path, emit: &EmitFormat) -> PathBuf {
+    let stem = source
+        .file_stem()
+        .and_then(|s| s.to_str())
+        .unwrap_or("model");
+    match emit {
+        EmitFormat::Exe => PathBuf::from(stem),
+        EmitFormat::Obj => PathBuf::from(format!("{stem}.o")),
+        EmitFormat::Lib => PathBuf::from(format!("lib{stem}.a")),
+        EmitFormat::Shared => PathBuf::from(format!("lib{stem}.so")),
+        EmitFormat::Header => PathBuf::from(format!("{stem}.h")),
+    }
 }
 
 fn print_inspect(
