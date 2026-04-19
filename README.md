@@ -1,8 +1,6 @@
 # NNL — Neural Network Language
 
-> **⚠️ This project is currently in the specification phase.** No compiler or runtime code has been implemented yet. The language design and tooling interface are being defined and are subject to change.
-
-NNL is a declarative language for defining neural network architectures, paired with the `nnc` compiler that will produce **standalone, zero-dependency native binaries** with embedded weights.
+NNL is a declarative language for defining neural network architectures, paired with the `nnc` compiler that produces **standalone, zero-dependency native binaries** with embedded weights.
 
 ## Goals
 
@@ -11,12 +9,27 @@ NNL is a declarative language for defining neural network architectures, paired 
 - **Human-readable source** — model architectures are defined in plain-text `.nnl` files, version-controllable and auditable.
 - **Systems-first** — `nnc` targets bare-metal-capable output, treating inference as a systems programming problem.
 
-## Target Use Cases
+## Quick Start
 
-- Embedded / IoT devices (microcontrollers, edge hardware)
-- Safety-critical systems (aerospace, automotive, medical — DO-178C, ISO 26262)
-- Low-latency inference (real-time control, HFT, robotics)
-- Minimal-dependency deployments (air-gapped, hardened containers, serverless)
+```bash
+# Install
+cargo install --path .
+
+# Write a model (or import from ONNX)
+nnc import model.onnx -o model.nnl --weights-dir ./weights
+
+# Inspect the architecture
+nnc inspect model.nnl
+
+# Compile to a native binary
+nnc compile model.nnl --emit exe -o inference
+
+# Run inference (stdin/stdout, raw float32 bytes)
+cat input.bin | ./inference > output.bin
+
+# Test against known output
+nnc test model.nnl --input input.npy --expected output.npy
+```
 
 ## Example
 
@@ -26,9 +39,8 @@ version 0.2;
 model mnist_classifier {
     config {
         precision: "float32";
-        weights: "./weights/mnist.npz";
+        weights: "./weights";
         target: "avx2";
-        batch: 1;
         preprocess: "normalize_0_1";
         io: "stdio";
     }
@@ -36,17 +48,44 @@ model mnist_classifier {
     layer input   = Input(shape: [28, 28, 1]);
     layer conv1   = Conv2D(filters: 32, kernel: 3, stride: 1, padding: "valid");
     layer pool1   = MaxPool2D(kernel: 2);
-    layer flatten  = Flatten();
+    layer flatten = Flatten();
     layer fc1     = Dense(units: 128, activation: "relu");
     layer output  = Dense(units: 10, activation: "softmax");
 }
 ```
 
+## Target Use Cases
+
+- Embedded / IoT devices (microcontrollers, edge hardware)
+- Safety-critical systems (aerospace, automotive, medical — DO-178C, ISO 26262)
+- Low-latency inference (real-time control, HFT, robotics)
+- Minimal-dependency deployments (air-gapped, hardened containers, serverless)
+
+## Commands
+
+| Command | Description |
+|---------|-------------|
+| `nnc compile` | Compile an NNL model to a native artifact (exe, .o, .a, .so, .h) |
+| `nnc inspect` | Print graph, shapes, parameter counts, and memory estimates |
+| `nnc import` | Convert an ONNX model to NNL format with extracted weights |
+| `nnc test` | Verify model output against known input/output pairs |
+
+## Requirements
+
+- **Rust toolchain** (to build `nnc` from source)
+- **C compiler** (`cc`, `gcc`, or `clang` on PATH — used by `nnc compile` to produce native code)
+
 ## Documentation
 
-- [Motivation](spec/motivation.md) — problem statement and design philosophy
-- [Specification](spec/specification.md) — language grammar, layer definitions, compilation strategy, and CLI design
+- [Language Reference](docs/language-reference.md) — NNL v0.2 syntax, config keys, layer types, connections
+- [CLI Reference](docs/cli.md) — all commands, flags, and examples
+- [Weight Files](docs/weights.md) — formats, naming convention, expected shapes
+- [ONNX Import](docs/onnx-import.md) — supported ops, round-trip workflow
+- [Code Generation](docs/codegen.md) — C backend, output formats, integration, cross-compilation
+- [Examples](docs/examples.md) — walkthroughs of included models
+- [Specification](spec/specification.md) — formal NNL v0.2 grammar and semantics
+- [Design Decisions](DESIGN.md) — ADRs and MVP constraints
 
-## Status
+## License
 
-🔬 **Specification phase** — the language grammar (v0.2), layer types, weight mapping, compilation strategy, and CLI interface are being designed. Contributions to the specification and feedback on the language design are welcome.
+Licensed under the [Apache License, Version 2.0](LICENSE).

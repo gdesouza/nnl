@@ -3,6 +3,11 @@ name = "nnc"
 version = "0.1.0"
 edition = "2024"
 description = "Compiler for the NNL (Neural Network Language)"
+license = "Apache-2.0"
+repository = "https://github.com/gdesouza/nnl"
+readme = "README.md"
+keywords = ["neural-network", "compiler", "inference", "embedded", "onnx"]
+categories = ["compilers", "science", "embedded"]
 
 [dependencies]
 clap = { version = "4", features = ["derive"] }
