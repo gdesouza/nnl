@@ -318,10 +318,8 @@ fn map_node(
                             stride = s as usize;
                         }
                     }
-                    "pads" => {
-                        if attr.ints.iter().any(|&p| p > 0) {
-                            padding = "same";
-                        }
+                    "pads" if attr.ints.iter().any(|&p| p > 0) => {
+                        padding = "same";
                     }
                     "kernel_shape" => {
                         if let Some(&k) = attr.ints.first() {
