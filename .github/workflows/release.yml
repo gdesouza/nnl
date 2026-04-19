@@ -19,8 +19,6 @@ jobs:
             os: ubuntu-latest
           - target: aarch64-apple-darwin
             os: macos-latest
-          - target: x86_64-pc-windows-msvc
-            os: windows-latest
     steps:
       - uses: actions/checkout@v6
 
@@ -38,8 +36,7 @@ jobs:
       - name: Test
         run: cargo test --target ${{ matrix.target }}
 
-      - name: Package (unix)
-        if: runner.os != 'Windows'
+      - name: Package
         run: |
           tag="${GITHUB_REF_NAME}"
           staging="nnc-${tag}-${{ matrix.target }}"
@@ -47,17 +44,6 @@ jobs:
           cp target/${{ matrix.target }}/release/nnc "$staging/"
           cp README.md "$staging/"
           tar czf "${staging}.tar.gz" "$staging"
-
-      - name: Package (windows)
-        if: runner.os == 'Windows'
-        shell: pwsh
-        run: |
-          $tag = $env:GITHUB_REF_NAME
-          $staging = "nnc-${tag}-${{ matrix.target }}"
-          New-Item -ItemType Directory -Path $staging
-          Copy-Item "target/${{ matrix.target }}/release/nnc.exe" "$staging/"
-          Copy-Item "README.md" "$staging/"
-          Compress-Archive -Path "$staging/*" -DestinationPath "${staging}.zip"
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
@@ -78,6 +64,4 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           generate_release_notes: true
-          files: |
-            nnc-*.tar.gz
-            nnc-*.zip
+          files: nnc-*.tar.gz
