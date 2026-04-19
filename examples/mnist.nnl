@@ -1,0 +1,20 @@
+version 0.2;
+
+// MNIST handwritten digit classifier
+model mnist_classifier {
+    config {
+        precision: "float32";
+        weights: "./weights/mnist.npz";
+        target: "avx2";
+        batch: 1;
+        preprocess: "normalize_0_1";
+        io: "stdio";
+    }
+
+    layer input   = Input(shape: [28, 28, 1]);
+    layer conv1   = Conv2D(filters: 32, kernel: 3, stride: 1, padding: "valid");
+    layer pool1   = MaxPool2D(kernel: 2);
+    layer flatten  = Flatten();
+    layer fc1     = Dense(units: 128, activation: "relu");
+    layer output  = Dense(units: 10, activation: "softmax");
+}

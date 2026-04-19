@@ -1,0 +1,266 @@
+---
+source: src/syntax/parser.rs
+expression: file
+---
+File {
+    version: Some(
+        Version {
+            number: 0.2,
+            span: 1..12,
+        },
+    ),
+    model: ModelDecl {
+        name: Ident {
+            name: "mnist_classifier",
+            span: 21..37,
+        },
+        config: ConfigBlock {
+            settings: [
+                Setting {
+                    key: Ident {
+                        name: "precision",
+                        span: 61..70,
+                    },
+                    value: String(
+                        "float32",
+                        72..81,
+                    ),
+                    span: 61..82,
+                },
+                Setting {
+                    key: Ident {
+                        name: "weights",
+                        span: 91..98,
+                    },
+                    value: String(
+                        "./weights/mnist.npz",
+                        100..121,
+                    ),
+                    span: 91..122,
+                },
+                Setting {
+                    key: Ident {
+                        name: "target",
+                        span: 131..137,
+                    },
+                    value: String(
+                        "avx2",
+                        139..145,
+                    ),
+                    span: 131..146,
+                },
+                Setting {
+                    key: Ident {
+                        name: "batch",
+                        span: 155..160,
+                    },
+                    value: Integer(
+                        1,
+                        162..163,
+                    ),
+                    span: 155..164,
+                },
+                Setting {
+                    key: Ident {
+                        name: "preprocess",
+                        span: 173..183,
+                    },
+                    value: String(
+                        "normalize_0_1",
+                        185..200,
+                    ),
+                    span: 173..201,
+                },
+                Setting {
+                    key: Ident {
+                        name: "io",
+                        span: 210..212,
+                    },
+                    value: String(
+                        "stdio",
+                        214..221,
+                    ),
+                    span: 210..222,
+                },
+            ],
+            span: 44..228,
+        },
+        layers: [
+            LayerDecl {
+                name: Ident {
+                    name: "input",
+                    span: 240..245,
+                },
+                layer_type: Input,
+                params: [
+                    Param {
+                        key: Ident {
+                            name: "shape",
+                            span: 256..261,
+                        },
+                        value: Shape(
+                            [
+                                28.0,
+                                28.0,
+                                1.0,
+                            ],
+                            263..274,
+                        ),
+                        span: 256..274,
+                    },
+                ],
+                span: 234..276,
+            },
+            LayerDecl {
+                name: Ident {
+                    name: "conv1",
+                    span: 287..292,
+                },
+                layer_type: Conv2D,
+                params: [
+                    Param {
+                        key: Ident {
+                            name: "filters",
+                            span: 304..311,
+                        },
+                        value: Integer(
+                            32,
+                            313..315,
+                        ),
+                        span: 304..315,
+                    },
+                    Param {
+                        key: Ident {
+                            name: "kernel",
+                            span: 317..323,
+                        },
+                        value: Integer(
+                            3,
+                            325..326,
+                        ),
+                        span: 317..326,
+                    },
+                    Param {
+                        key: Ident {
+                            name: "stride",
+                            span: 328..334,
+                        },
+                        value: Integer(
+                            1,
+                            336..337,
+                        ),
+                        span: 328..337,
+                    },
+                    Param {
+                        key: Ident {
+                            name: "padding",
+                            span: 339..346,
+                        },
+                        value: String(
+                            "valid",
+                            348..355,
+                        ),
+                        span: 339..355,
+                    },
+                ],
+                span: 281..357,
+            },
+            LayerDecl {
+                name: Ident {
+                    name: "pool1",
+                    span: 368..373,
+                },
+                layer_type: MaxPool2D,
+                params: [
+                    Param {
+                        key: Ident {
+                            name: "kernel",
+                            span: 388..394,
+                        },
+                        value: Integer(
+                            2,
+                            396..397,
+                        ),
+                        span: 388..397,
+                    },
+                ],
+                span: 362..399,
+            },
+            LayerDecl {
+                name: Ident {
+                    name: "flatten",
+                    span: 410..417,
+                },
+                layer_type: Flatten,
+                params: [],
+                span: 404..431,
+            },
+            LayerDecl {
+                name: Ident {
+                    name: "fc1",
+                    span: 442..445,
+                },
+                layer_type: Dense,
+                params: [
+                    Param {
+                        key: Ident {
+                            name: "units",
+                            span: 458..463,
+                        },
+                        value: Integer(
+                            128,
+                            465..468,
+                        ),
+                        span: 458..468,
+                    },
+                    Param {
+                        key: Ident {
+                            name: "activation",
+                            span: 470..480,
+                        },
+                        value: String(
+                            "relu",
+                            482..488,
+                        ),
+                        span: 470..488,
+                    },
+                ],
+                span: 436..490,
+            },
+            LayerDecl {
+                name: Ident {
+                    name: "output",
+                    span: 501..507,
+                },
+                layer_type: Dense,
+                params: [
+                    Param {
+                        key: Ident {
+                            name: "units",
+                            span: 517..522,
+                        },
+                        value: Integer(
+                            10,
+                            524..526,
+                        ),
+                        span: 517..526,
+                    },
+                    Param {
+                        key: Ident {
+                            name: "activation",
+                            span: 528..538,
+                        },
+                        value: String(
+                            "softmax",
+                            540..549,
+                        ),
+                        span: 528..549,
+                    },
+                ],
+                span: 495..551,
+            },
+        ],
+        connections: None,
+        span: 15..553,
+    },
+}

@@ -1,0 +1,350 @@
+---
+source: src/syntax/parser.rs
+expression: file
+---
+File {
+    version: Some(
+        Version {
+            number: 0.2,
+            span: 1..12,
+        },
+    ),
+    model: ModelDecl {
+        name: Ident {
+            name: "resnet_block",
+            span: 21..33,
+        },
+        config: ConfigBlock {
+            settings: [
+                Setting {
+                    key: Ident {
+                        name: "precision",
+                        span: 57..66,
+                    },
+                    value: String(
+                        "float32",
+                        68..77,
+                    ),
+                    span: 57..78,
+                },
+                Setting {
+                    key: Ident {
+                        name: "weights",
+                        span: 87..94,
+                    },
+                    value: String(
+                        "./weights/resnet.npz",
+                        96..118,
+                    ),
+                    span: 87..119,
+                },
+                Setting {
+                    key: Ident {
+                        name: "target",
+                        span: 128..134,
+                    },
+                    value: String(
+                        "generic",
+                        136..145,
+                    ),
+                    span: 128..146,
+                },
+                Setting {
+                    key: Ident {
+                        name: "io",
+                        span: 155..157,
+                    },
+                    value: String(
+                        "stdio",
+                        159..166,
+                    ),
+                    span: 155..167,
+                },
+            ],
+            span: 40..173,
+        },
+        layers: [
+            LayerDecl {
+                name: Ident {
+                    name: "input",
+                    span: 185..190,
+                },
+                layer_type: Input,
+                params: [
+                    Param {
+                        key: Ident {
+                            name: "shape",
+                            span: 200..205,
+                        },
+                        value: Shape(
+                            [
+                                32.0,
+                                32.0,
+                                64.0,
+                            ],
+                            207..219,
+                        ),
+                        span: 200..219,
+                    },
+                ],
+                span: 179..221,
+            },
+            LayerDecl {
+                name: Ident {
+                    name: "conv1",
+                    span: 232..237,
+                },
+                layer_type: Conv2D,
+                params: [
+                    Param {
+                        key: Ident {
+                            name: "filters",
+                            span: 248..255,
+                        },
+                        value: Integer(
+                            64,
+                            257..259,
+                        ),
+                        span: 248..259,
+                    },
+                    Param {
+                        key: Ident {
+                            name: "kernel",
+                            span: 261..267,
+                        },
+                        value: Integer(
+                            3,
+                            269..270,
+                        ),
+                        span: 261..270,
+                    },
+                    Param {
+                        key: Ident {
+                            name: "stride",
+                            span: 272..278,
+                        },
+                        value: Integer(
+                            1,
+                            280..281,
+                        ),
+                        span: 272..281,
+                    },
+                    Param {
+                        key: Ident {
+                            name: "padding",
+                            span: 283..290,
+                        },
+                        value: String(
+                            "same",
+                            292..298,
+                        ),
+                        span: 283..298,
+                    },
+                ],
+                span: 226..300,
+            },
+            LayerDecl {
+                name: Ident {
+                    name: "bn1",
+                    span: 311..314,
+                },
+                layer_type: BatchNorm,
+                params: [],
+                span: 305..332,
+            },
+            LayerDecl {
+                name: Ident {
+                    name: "relu1",
+                    span: 343..348,
+                },
+                layer_type: ReLU,
+                params: [],
+                span: 337..359,
+            },
+            LayerDecl {
+                name: Ident {
+                    name: "conv2",
+                    span: 370..375,
+                },
+                layer_type: Conv2D,
+                params: [
+                    Param {
+                        key: Ident {
+                            name: "filters",
+                            span: 386..393,
+                        },
+                        value: Integer(
+                            64,
+                            395..397,
+                        ),
+                        span: 386..397,
+                    },
+                    Param {
+                        key: Ident {
+                            name: "kernel",
+                            span: 399..405,
+                        },
+                        value: Integer(
+                            3,
+                            407..408,
+                        ),
+                        span: 399..408,
+                    },
+                    Param {
+                        key: Ident {
+                            name: "stride",
+                            span: 410..416,
+                        },
+                        value: Integer(
+                            1,
+                            418..419,
+                        ),
+                        span: 410..419,
+                    },
+                    Param {
+                        key: Ident {
+                            name: "padding",
+                            span: 421..428,
+                        },
+                        value: String(
+                            "same",
+                            430..436,
+                        ),
+                        span: 421..436,
+                    },
+                ],
+                span: 364..438,
+            },
+            LayerDecl {
+                name: Ident {
+                    name: "bn2",
+                    span: 449..452,
+                },
+                layer_type: BatchNorm,
+                params: [],
+                span: 443..470,
+            },
+            LayerDecl {
+                name: Ident {
+                    name: "res",
+                    span: 481..484,
+                },
+                layer_type: Add,
+                params: [],
+                span: 475..496,
+            },
+            LayerDecl {
+                name: Ident {
+                    name: "relu2",
+                    span: 507..512,
+                },
+                layer_type: ReLU,
+                params: [],
+                span: 501..523,
+            },
+        ],
+        connections: Some(
+            ConnectionBlock {
+                connections: [
+                    Connection {
+                        sources: [
+                            Ident {
+                                name: "input",
+                                span: 551..556,
+                            },
+                        ],
+                        target: Ident {
+                            name: "conv1",
+                            span: 560..565,
+                        },
+                        span: 551..566,
+                    },
+                    Connection {
+                        sources: [
+                            Ident {
+                                name: "conv1",
+                                span: 575..580,
+                            },
+                        ],
+                        target: Ident {
+                            name: "bn1",
+                            span: 584..587,
+                        },
+                        span: 575..588,
+                    },
+                    Connection {
+                        sources: [
+                            Ident {
+                                name: "bn1",
+                                span: 597..600,
+                            },
+                        ],
+                        target: Ident {
+                            name: "relu1",
+                            span: 604..609,
+                        },
+                        span: 597..610,
+                    },
+                    Connection {
+                        sources: [
+                            Ident {
+                                name: "relu1",
+                                span: 619..624,
+                            },
+                        ],
+                        target: Ident {
+                            name: "conv2",
+                            span: 628..633,
+                        },
+                        span: 619..634,
+                    },
+                    Connection {
+                        sources: [
+                            Ident {
+                                name: "conv2",
+                                span: 643..648,
+                            },
+                        ],
+                        target: Ident {
+                            name: "bn2",
+                            span: 652..655,
+                        },
+                        span: 643..656,
+                    },
+                    Connection {
+                        sources: [
+                            Ident {
+                                name: "input",
+                                span: 666..671,
+                            },
+                            Ident {
+                                name: "bn2",
+                                span: 673..676,
+                            },
+                        ],
+                        target: Ident {
+                            name: "res",
+                            span: 681..684,
+                        },
+                        span: 665..685,
+                    },
+                    Connection {
+                        sources: [
+                            Ident {
+                                name: "res",
+                                span: 694..697,
+                            },
+                        ],
+                        target: Ident {
+                            name: "relu2",
+                            span: 701..706,
+                        },
+                        span: 694..707,
+                    },
+                ],
+                span: 529..713,
+            },
+        ),
+        span: 15..715,
+    },
+}

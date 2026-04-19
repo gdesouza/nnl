@@ -87,6 +87,7 @@ The config block defines global compilation parameters.
 | preprocess | String | No | "none" | Input preprocessing ("none", "normalize_0_1", "standardize"). |
 | preprocess_mean | Shape | No | — | Per-channel mean for "standardize" (e.g., [0.485, 0.456, 0.406]). |
 | preprocess_std | Shape | No | — | Per-channel std for "standardize" (e.g., [0.229, 0.224, 0.225]). |
+| io | String | No | "stdio" | I/O mode for `--emit exe` binaries (see §7.4). Currently only "stdio" is supported. |
 
 ## 3. Layer Definitions
 
@@ -232,7 +233,7 @@ When `preprocess` is set in the config, `nnc` generates a preprocessing step at 
 
 | Flag | Output | Description |
 |------|--------|-------------|
-| `--emit exe` | Executable | Standalone binary with a `main()` that reads input from stdin or a file. |
+| `--emit exe` | Executable | Standalone binary with a `main()`. I/O behavior is determined by the `io` config setting (see §7.4). |
 | `--emit obj` | `.o` file | Relocatable object file for linking into a larger project. |
 | `--emit lib` | `.a` file | Static library archive. |
 | `--emit shared` | `.so` / `.dll` | Shared library. |
@@ -258,7 +259,39 @@ int model_name_output_size(void);  // total elements
 
 The caller is responsible for allocating the input and output buffers. All internal computation uses the statically allocated workspace — no heap allocation occurs.
 
-### 7.3 Cross-Compilation
+### 7.3 Executable I/O Modes
+
+The `io` config setting controls how `--emit exe` binaries receive input and produce output. The `io` setting is ignored for `obj`, `lib`, `shared`, and `header` output formats.
+
+#### 7.3.1 `"stdio"` (default)
+
+The generated binary reads raw tensor bytes from **stdin** and writes raw tensor bytes to **stdout**.
+
+- **Input**: exactly `input_size * sizeof(precision)` bytes, row-major layout. For `float32`, this is `input_size * 4` bytes.
+- **Output**: exactly `output_size * sizeof(precision)` bytes, row-major layout.
+- **Exit code**: 0 on success, 1 on error (e.g., unexpected input size). Errors are printed to stderr.
+
+Example usage:
+
+```bash
+cat input.bin | ./mnist_classifier > output.bin
+```
+
+Where `input.bin` contains 784 float32 values (28×28×1) as raw bytes, and `output.bin` will contain 10 float32 values.
+
+#### 7.3.2 Future I/O Modes
+
+The following modes are reserved for future specification and are not yet implemented:
+
+| Mode | Description |
+|------|-------------|
+| `"file"` | Read/write named files passed as command-line arguments. |
+| `"npy"` | Read/write NumPy `.npy` format from files or stdin/stdout. |
+| `"tcp"` | Listen on a TCP socket, accept inference requests using a binary framing protocol. |
+
+Using an unimplemented `io` mode produces a compile error.
+
+### 7.4 Cross-Compilation
 
 `nnc` supports cross-compilation via the `--target-triple` flag (e.g., `--target-triple thumbv7em-none-eabi` for ARM Cortex-M). The `target` config setting controls SIMD optimization; `--target-triple` controls the output architecture.
 
@@ -367,6 +400,7 @@ model mnist_classifier {
         target: "avx2";
         batch: 1;
         preprocess: "normalize_0_1";
+        io: "stdio";
     }
 
     layer input   = Input(shape: [28, 28, 1]);
@@ -388,6 +422,7 @@ model resnet_block {
         precision: "float32";
         weights: "./weights/resnet.npz";
         target: "generic";
+        io: "stdio";
     }
 
     layer input  = Input(shape: [32, 32, 64]);

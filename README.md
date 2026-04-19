@@ -30,6 +30,7 @@ model mnist_classifier {
         target: "avx2";
         batch: 1;
         preprocess: "normalize_0_1";
+        io: "stdio";
     }
 
     layer input   = Input(shape: [28, 28, 1]);

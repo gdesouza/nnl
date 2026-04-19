@@ -1,0 +1,29 @@
+version 0.2;
+
+model resnet_block {
+    config {
+        precision: "float32";
+        weights: "./weights/resnet.npz";
+        target: "generic";
+        io: "stdio";
+    }
+
+    layer input  = Input(shape: [32, 32, 64]);
+    layer conv1  = Conv2D(filters: 64, kernel: 3, stride: 1, padding: "same");
+    layer bn1    = BatchNorm();
+    layer relu1  = ReLU();
+    layer conv2  = Conv2D(filters: 64, kernel: 3, stride: 1, padding: "same");
+    layer bn2    = BatchNorm();
+    layer res    = Add();
+    layer relu2  = ReLU();
+
+    connections {
+        input -> conv1;
+        conv1 -> bn1;
+        bn1 -> relu1;
+        relu1 -> conv2;
+        conv2 -> bn2;
+        [input, bn2] -> res;
+        res -> relu2;
+    }
+}
