@@ -3,7 +3,7 @@ version 0.2;
 model resnet_block {
     config {
         precision: "float32";
-        weights: "./weights/resnet.npz";
+        weights: "./weights";
         target: "generic";
         io: "stdio";
     }

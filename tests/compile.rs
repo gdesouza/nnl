@@ -273,6 +273,80 @@ model mini_cnn {{
 }
 
 #[test]
+fn nnc_test_pass() {
+    let tmp = tempfile::tempdir().unwrap();
+    let weights_dir = tmp.path().join("weights");
+    std::fs::create_dir_all(&weights_dir).unwrap();
+
+    // Simple: Input [2] -> Dense(1), weight=[1,1], bias=[0]
+    // input [3, 1] → output [4]
+    write_npy_f32(&weights_dir.join("fc.weight.npy"), &[2, 1], &[1.0, 1.0]);
+    write_npy_f32(&weights_dir.join("fc.bias.npy"), &[1], &[0.0]);
+
+    let model_path = tmp.path().join("model.nnl");
+    let model_src = format!(
+        r#"model sum {{ config {{ weights: "{}"; }} layer input = Input(shape: [2]); layer fc = Dense(units: 1); }}"#,
+        weights_dir.display()
+    );
+    std::fs::write(&model_path, &model_src).unwrap();
+
+    // Write input.npy: [3.0, 1.0]
+    let input_path = tmp.path().join("input.npy");
+    write_npy_f32(&input_path, &[2], &[3.0, 1.0]);
+
+    // Write expected.npy: [4.0]
+    let expected_path = tmp.path().join("expected.npy");
+    write_npy_f32(&expected_path, &[1], &[4.0]);
+
+    nnc()
+        .args([
+            "test",
+            model_path.to_str().unwrap(),
+            "--input", input_path.to_str().unwrap(),
+            "--expected", expected_path.to_str().unwrap(),
+            "--tolerance", "1e-5",
+        ])
+        .assert()
+        .success()
+        .stderr(predicates::prelude::predicate::str::contains("PASS"));
+}
+
+#[test]
+fn nnc_test_fail() {
+    let tmp = tempfile::tempdir().unwrap();
+    let weights_dir = tmp.path().join("weights");
+    std::fs::create_dir_all(&weights_dir).unwrap();
+
+    write_npy_f32(&weights_dir.join("fc.weight.npy"), &[2, 1], &[1.0, 1.0]);
+    write_npy_f32(&weights_dir.join("fc.bias.npy"), &[1], &[0.0]);
+
+    let model_path = tmp.path().join("model.nnl");
+    let model_src = format!(
+        r#"model sum {{ config {{ weights: "{}"; }} layer input = Input(shape: [2]); layer fc = Dense(units: 1); }}"#,
+        weights_dir.display()
+    );
+    std::fs::write(&model_path, &model_src).unwrap();
+
+    let input_path = tmp.path().join("input.npy");
+    write_npy_f32(&input_path, &[2], &[3.0, 1.0]);
+
+    // Wrong expected: 999.0 instead of 4.0
+    let expected_path = tmp.path().join("expected.npy");
+    write_npy_f32(&expected_path, &[1], &[999.0]);
+
+    nnc()
+        .args([
+            "test",
+            model_path.to_str().unwrap(),
+            "--input", input_path.to_str().unwrap(),
+            "--expected", expected_path.to_str().unwrap(),
+        ])
+        .assert()
+        .failure()
+        .stderr(predicates::prelude::predicate::str::contains("FAIL"));
+}
+
+#[test]
 fn compile_residual_block() {
     // Test that explicit graph with skip connections compiles and links
     let tmp = tempfile::tempdir().unwrap();

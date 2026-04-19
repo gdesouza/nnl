@@ -26,10 +26,12 @@ pub fn run(cli: &Cli) -> i32 {
             ..
         } => run_compile(source, emit, output.as_deref()),
         Command::Inspect { source } => run_inspect(source),
-        Command::Test { source, .. } => {
-            eprintln!("nnc: test not yet implemented for {:?}", source);
-            1
-        }
+        Command::Test {
+            source,
+            input,
+            expected,
+            tolerance,
+        } => run_test(source, input, expected, *tolerance),
     }
 }
 
@@ -135,6 +137,128 @@ fn run_compile(source: &Path, emit_fmt: &EmitFormat, output: Option<&Path>) -> i
 
     eprintln!("nnc: wrote {}", output_path.display());
     0
+}
+
+fn run_test(source: &Path, input_path: &Path, expected_path: &Path, tolerance: f64) -> i32 {
+    // Compile to a temp executable
+    let tmp_dir = match tempfile::tempdir() {
+        Ok(d) => d,
+        Err(e) => {
+            eprintln!("nnc: failed to create temp directory: {e}");
+            return 1;
+        }
+    };
+    let exe_path = tmp_dir.path().join("nnc_test_binary");
+
+    let compile_code = run_compile(source, &EmitFormat::Exe, Some(&exe_path));
+    if compile_code != 0 {
+        return compile_code;
+    }
+
+    // Read input .npy
+    let input_data = match read_npy_f32(input_path) {
+        Ok(d) => d,
+        Err(e) => {
+            eprintln!("nnc: cannot read input: {e}");
+            return 1;
+        }
+    };
+
+    // Read expected .npy
+    let expected_data = match read_npy_f32(expected_path) {
+        Ok(d) => d,
+        Err(e) => {
+            eprintln!("nnc: cannot read expected output: {e}");
+            return 1;
+        }
+    };
+
+    // Run inference
+    let input_bytes: Vec<u8> = input_data.iter().flat_map(|v| v.to_ne_bytes()).collect();
+    let output = match std::process::Command::new(&exe_path)
+        .stdin(std::process::Stdio::piped())
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::piped())
+        .spawn()
+        .and_then(|mut child| {
+            use std::io::Write;
+            child.stdin.take().unwrap().write_all(&input_bytes)?;
+            child.wait_with_output()
+        }) {
+        Ok(o) => o,
+        Err(e) => {
+            eprintln!("nnc: failed to run compiled binary: {e}");
+            return 1;
+        }
+    };
+
+    if !output.status.success() {
+        eprintln!(
+            "nnc: inference binary failed: {}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+        return 1;
+    }
+
+    // Parse output
+    let output_data: Vec<f32> = output
+        .stdout
+        .chunks_exact(4)
+        .map(|c| f32::from_ne_bytes(c.try_into().unwrap()))
+        .collect();
+
+    // Compare
+    if output_data.len() != expected_data.len() {
+        eprintln!(
+            "nnc: output size mismatch: got {} elements, expected {}",
+            output_data.len(),
+            expected_data.len()
+        );
+        return 1;
+    }
+
+    let mut max_diff: f64 = 0.0;
+    let mut fail_count = 0;
+    for (i, (got, exp)) in output_data.iter().zip(expected_data.iter()).enumerate() {
+        let diff = (*got as f64 - *exp as f64).abs();
+        if diff > max_diff {
+            max_diff = diff;
+        }
+        if diff > tolerance {
+            if fail_count < 10 {
+                eprintln!(
+                    "  mismatch at [{i}]: got {got:.8}, expected {exp:.8}, diff {diff:.2e}"
+                );
+            }
+            fail_count += 1;
+        }
+    }
+
+    if fail_count > 0 {
+        if fail_count > 10 {
+            eprintln!("  ... and {} more mismatches", fail_count - 10);
+        }
+        eprintln!(
+            "FAIL: {fail_count}/{} elements exceed tolerance {tolerance:.1e} (max diff: {max_diff:.2e})",
+            output_data.len()
+        );
+        return 1;
+    }
+
+    eprintln!(
+        "PASS: {}/{} elements within tolerance {tolerance:.1e} (max diff: {max_diff:.2e})",
+        output_data.len(),
+        output_data.len()
+    );
+    0
+}
+
+fn read_npy_f32(path: &Path) -> Result<Vec<f32>, String> {
+    let bytes = std::fs::read(path).map_err(|e| format!("cannot read `{}`: {e}", path.display()))?;
+    let npy = npyz::NpyFile::new(&bytes[..])
+        .map_err(|e| format!("cannot parse `{}`: {e}", path.display()))?;
+    npy.into_vec::<f32>()
+        .map_err(|e| format!("cannot read float32 data from `{}`: {e}", path.display()))
 }
 
 fn default_output_path(source: &Path, emit: &EmitFormat) -> PathBuf {

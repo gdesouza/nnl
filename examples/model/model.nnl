@@ -1,0 +1,10 @@
+version 0.2;
+model test_mlp {
+    config {
+        weights: "./weights";
+        io: "stdio";
+    }
+    layer input = Input(shape: [4]);
+    layer fc1   = Dense(units: 3);
+    layer fc2   = Dense(units: 2);
+}
