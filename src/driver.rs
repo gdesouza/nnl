@@ -1,5 +1,7 @@
 use crate::cli::{Cli, Command};
 use crate::diag::NncError;
+use crate::ir::{graph, lower};
+use crate::sema::{memory, shapes, validate};
 use crate::syntax::{lexer, parser};
 
 pub fn run(cli: &Cli) -> i32 {
@@ -26,6 +28,7 @@ fn run_inspect(source: &std::path::Path) -> i32 {
         }
     };
 
+    // Phase 1: Lex + Parse
     let tokens = match lexer::tokenize(&content) {
         Ok(t) => t,
         Err(e) => {
@@ -44,76 +47,146 @@ fn run_inspect(source: &std::path::Path) -> i32 {
         }
     };
 
-    print_inspect(&file);
+    // Phase 2: Lower to IR
+    let model = match lower::lower(&file) {
+        Ok(m) => m,
+        Err(e) => {
+            let err = NncError::syntax(e.message, e.span, &filename, &content);
+            eprintln!("{:?}", miette::Report::new(err));
+            return 1;
+        }
+    };
+
+    // Semantic validation
+    let warnings = match validate::validate(&model) {
+        Ok(w) => w,
+        Err(e) => {
+            eprintln!("{}: {}: {}", filename, e.code, e.message);
+            return 1;
+        }
+    };
+    for w in &warnings {
+        eprintln!("{filename}: {w}");
+    }
+
+    // Build graph + topo sort
+    let graph_info = match graph::build_graph(&model) {
+        Ok(g) => g,
+        Err(e) => {
+            eprintln!("{}: {}: {}", filename, e.code, e.message);
+            return 1;
+        }
+    };
+    for w in &graph_info.warnings {
+        eprintln!("{filename}: {w}");
+    }
+
+    // Shape inference
+    let shape_info = match shapes::infer_shapes(&model, &graph_info.topo_order) {
+        Ok(s) => s,
+        Err(e) => {
+            eprintln!("{}: {}: {}", filename, e.code, e.message);
+            return 1;
+        }
+    };
+
+    // Memory estimation
+    let mem_info = memory::estimate_memory(&model, &shape_info.shapes);
+
+    // Print inspect output
+    print_inspect(&model, &shape_info, &mem_info);
     0
 }
 
-fn print_inspect(file: &crate::syntax::ast::File) {
-    if let Some(v) = &file.version {
-        println!("Version: {}", v.number);
-    }
-
-    let model = &file.model;
-    println!("Model: {}", model.name.name);
-    println!();
-
-    println!("Config:");
-    for setting in &model.config.settings {
-        println!("  {}: {}", setting.key.name, format_value(&setting.value));
-    }
-    println!();
-
-    println!("Layers:");
-    for layer in &model.layers {
-        let params: Vec<String> = layer
-            .params
-            .iter()
-            .map(|p| format!("{}: {}", p.key.name, format_value(&p.value)))
-            .collect();
-        if params.is_empty() {
-            println!("  {} = {}()", layer.name.name, layer.layer_type);
-        } else {
-            println!(
-                "  {} = {}({})",
-                layer.name.name,
-                layer.layer_type,
-                params.join(", ")
-            );
-        }
-    }
-
-    if let Some(conns) = &model.connections {
-        println!();
-        println!("Connections:");
-        for conn in &conns.connections {
-            if conn.sources.len() == 1 {
-                println!("  {} -> {}", conn.sources[0].name, conn.target.name);
-            } else {
-                let srcs: Vec<&str> = conn.sources.iter().map(|s| s.name.as_str()).collect();
-                println!("  [{}] -> {}", srcs.join(", "), conn.target.name);
-            }
-        }
-    }
-}
-
-fn format_value(value: &crate::syntax::ast::Value) -> String {
-    use crate::syntax::ast::Value;
-    match value {
-        Value::String(s, _) => format!("\"{s}\""),
-        Value::Integer(n, _) => n.to_string(),
-        Value::Float(f, _) => f.to_string(),
-        Value::Bool(b, _) => b.to_string(),
-        Value::Shape(nums, _) => {
-            let parts: Vec<String> = nums.iter().map(|n| format_shape_num(*n)).collect();
-            format!("[{}]", parts.join(", "))
-        }
-    }
-}
-
-fn format_shape_num(n: f64) -> String {
-    if n.fract() == 0.0 {
-        format!("{}", n as i64)
+fn print_inspect(
+    model: &crate::ir::model::Model,
+    shape_info: &shapes::ShapeInfo,
+    mem_info: &memory::MemoryInfo,
+) {
+    let version_str = model
+        .version
+        .map(|v| format!("version {v}"))
+        .unwrap_or_default();
+    if !version_str.is_empty() {
+        println!(
+            "Model: {} ({version_str})",
+            model.name
+        );
     } else {
-        format!("{n}")
+        println!("Model: {}", model.name);
+    }
+    println!(
+        "Precision: {} | Target: {} | Batch: {}",
+        model.config.precision, model.config.target, model.config.batch
+    );
+    println!();
+
+    // Table header
+    println!(
+        "{:<16}{:<12}{:<18}{:>8}",
+        "Layer", "Type", "Output Shape", "Params"
+    );
+    println!("{}", "─".repeat(54));
+
+    for layer in &model.layers {
+        let type_name = layer.kind.type_name();
+        let shape_str = shape_info
+            .shapes
+            .get(&layer.id)
+            .map(|s| format_shape(s))
+            .unwrap_or_else(|| "?".to_string());
+        let params = mem_info
+            .layer_params
+            .get(&layer.id)
+            .copied()
+            .unwrap_or(0);
+
+        println!(
+            "{:<16}{:<12}{:<18}{:>8}",
+            layer.id, type_name, shape_str, format_number(params)
+        );
+    }
+
+    println!("{}", "─".repeat(54));
+    println!("Total params:    {}", format_number(mem_info.total_params));
+    println!(
+        "Weight memory:   {}",
+        format_bytes(mem_info.weight_bytes)
+    );
+    println!(
+        "Workspace:       {} (static buffer)",
+        format_bytes(mem_info.workspace_bytes)
+    );
+}
+
+fn format_shape(shape: &[usize]) -> String {
+    let parts: Vec<String> = shape.iter().map(|n| n.to_string()).collect();
+    format!("[{}]", parts.join(", "))
+}
+
+fn format_number(n: usize) -> String {
+    if n == 0 {
+        return "0".to_string();
+    }
+    let s = n.to_string();
+    let mut result = String::new();
+    for (i, c) in s.chars().rev().enumerate() {
+        if i > 0 && i % 3 == 0 {
+            result.push(',');
+        }
+        result.push(c);
+    }
+    result.chars().rev().collect()
+}
+
+fn format_bytes(bytes: usize) -> String {
+    if bytes < 1024 {
+        format!("{bytes} B")
+    } else if bytes < 1024 * 1024 {
+        format!("{:.1} KB", bytes as f64 / 1024.0)
+    } else if bytes < 1024 * 1024 * 1024 {
+        format!("{:.2} MB", bytes as f64 / (1024.0 * 1024.0))
+    } else {
+        format!("{:.2} GB", bytes as f64 / (1024.0 * 1024.0 * 1024.0))
     }
 }
