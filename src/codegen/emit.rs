@@ -99,17 +99,15 @@ pub fn emit_source(
         .max()
         .unwrap_or(1);
 
-    // ── Workspace buffers (ping-pong) ────────────────────────────
-    writeln!(
-        c,
-        "static float nnc_workspace_a[{max_activation}] __attribute__((aligned({align})));"
-    )
-    .unwrap();
-    writeln!(
-        c,
-        "static float nnc_workspace_b[{max_activation}] __attribute__((aligned({align})));"
-    )
-    .unwrap();
+    // ── Buffer allocation with liveness analysis ─────────────────
+    let buf_plan = plan_buffers(model, topo_order);
+    for slot in 0..buf_plan.num_slots {
+        writeln!(
+            c,
+            "static float nnc_buf_{slot}[{max_activation}] __attribute__((aligned({align})));"
+        )
+        .unwrap();
+    }
     writeln!(c).unwrap();
 
     // ── Size helpers ─────────────────────────────────────────────
@@ -139,23 +137,18 @@ pub fn emit_source(
     writeln!(c, "    float *out_ptr = (float *)output;").unwrap();
     writeln!(c).unwrap();
 
-    // Track which workspace buffer each layer writes to.
-    // 0 = workspace_a, 1 = workspace_b, -1 = special (input param)
-    let mut buf_map: std::collections::HashMap<String, i32> = std::collections::HashMap::new();
-    let mut next_buf: i32 = 0; // start writing to workspace_a
-
     for layer_id in topo_order {
         let layer = model.layers.iter().find(|l| l.id == *layer_id).unwrap();
         let out_shape = shape_info.shapes.get(layer_id).unwrap();
         let out_elems = shape_elems(out_shape) * batch;
+        let slot = buf_plan.slot[layer_id];
+        let dst = format!("nnc_buf_{slot}");
 
         writeln!(c, "    /* layer: {} ({}) */", layer_id, layer.kind.type_name()).unwrap();
 
         match &layer.kind {
             LayerKind::Input { shape } => {
                 let n = shape_elems(shape) * batch;
-                let dst = buf_name(next_buf);
-                // Copy input into workspace, applying preprocessing
                 match model.config.preprocess {
                     Preprocess::None => {
                         writeln!(c, "    memcpy({dst}, in_ptr, {n} * sizeof(float));").unwrap();
@@ -169,13 +162,10 @@ pub fn emit_source(
                         emit_standardize_loop(&mut c, n, &model.config.preprocess_mean, &model.config.preprocess_std, &dst);
                     }
                 }
-                buf_map.insert(layer_id.clone(), next_buf);
-                next_buf = 1 - next_buf;
             }
 
             LayerKind::Dense { units, activation } => {
-                let src = src_buf_for(layer_id, model, &buf_map);
-                let dst = buf_name(next_buf);
+                let src = src_buf(&buf_plan, layer_id, model);
                 let in_shape = input_shape_for(layer_id, model, shape_info);
                 let in_features = shape_elems(&in_shape);
 
@@ -184,19 +174,10 @@ pub fn emit_source(
 
                 writeln!(c, "    for (int i = 0; i < {units}; i++) {{").unwrap();
                 writeln!(c, "        float sum = {b_var}[i];").unwrap();
-                writeln!(
-                    c,
-                    "        for (int j = 0; j < {in_features}; j++) {{"
-                )
-                .unwrap();
-                writeln!(
-                    c,
-                    "            sum += {w_var}[j * {units} + i] * {src}[j];"
-                )
-                .unwrap();
+                writeln!(c, "        for (int j = 0; j < {in_features}; j++) {{").unwrap();
+                writeln!(c, "            sum += {w_var}[j * {units} + i] * {src}[j];").unwrap();
                 writeln!(c, "        }}").unwrap();
 
-                // Inline activation
                 match activation {
                     Activation::None => {
                         writeln!(c, "        {dst}[i] = sum;").unwrap();
@@ -205,14 +186,9 @@ pub fn emit_source(
                         writeln!(c, "        {dst}[i] = sum > 0.0f ? sum : 0.0f;").unwrap();
                     }
                     Activation::Sigmoid => {
-                        writeln!(
-                            c,
-                            "        {dst}[i] = 1.0f / (1.0f + expf(-sum));"
-                        )
-                        .unwrap();
+                        writeln!(c, "        {dst}[i] = 1.0f / (1.0f + expf(-sum));").unwrap();
                     }
                     Activation::Softmax => {
-                        // defer softmax to after the loop
                         writeln!(c, "        {dst}[i] = sum;").unwrap();
                     }
                 }
@@ -221,134 +197,186 @@ pub fn emit_source(
                 if matches!(activation, Activation::Softmax) {
                     emit_softmax_block(&mut c, *units, &dst);
                 }
-
-                buf_map.insert(layer_id.clone(), next_buf);
-                next_buf = 1 - next_buf;
             }
 
             LayerKind::Flatten | LayerKind::Dropout { .. } => {
-                // Identity: copy src to dst (or alias)
-                let src = src_buf_for(layer_id, model, &buf_map);
-                let dst = buf_name(next_buf);
-                writeln!(
-                    c,
-                    "    memcpy({dst}, {src}, {out_elems} * sizeof(float));"
-                )
-                .unwrap();
-                buf_map.insert(layer_id.clone(), next_buf);
-                next_buf = 1 - next_buf;
+                let src = src_buf(&buf_plan, layer_id, model);
+                writeln!(c, "    memcpy({dst}, {src}, {out_elems} * sizeof(float));").unwrap();
             }
 
             LayerKind::ReLU => {
-                let src = src_buf_for(layer_id, model, &buf_map);
-                let dst = buf_name(next_buf);
+                let src = src_buf(&buf_plan, layer_id, model);
                 writeln!(c, "    for (int i = 0; i < {out_elems}; i++) {{").unwrap();
-                writeln!(
-                    c,
-                    "        {dst}[i] = {src}[i] > 0.0f ? {src}[i] : 0.0f;"
-                )
-                .unwrap();
+                writeln!(c, "        {dst}[i] = {src}[i] > 0.0f ? {src}[i] : 0.0f;").unwrap();
                 writeln!(c, "    }}").unwrap();
-                buf_map.insert(layer_id.clone(), next_buf);
-                next_buf = 1 - next_buf;
             }
 
             LayerKind::Sigmoid => {
-                let src = src_buf_for(layer_id, model, &buf_map);
-                let dst = buf_name(next_buf);
+                let src = src_buf(&buf_plan, layer_id, model);
                 writeln!(c, "    for (int i = 0; i < {out_elems}; i++) {{").unwrap();
-                writeln!(
-                    c,
-                    "        {dst}[i] = 1.0f / (1.0f + expf(-{src}[i]));"
-                )
-                .unwrap();
+                writeln!(c, "        {dst}[i] = 1.0f / (1.0f + expf(-{src}[i]));").unwrap();
                 writeln!(c, "    }}").unwrap();
-                buf_map.insert(layer_id.clone(), next_buf);
-                next_buf = 1 - next_buf;
             }
 
             LayerKind::Softmax { .. } => {
-                let src = src_buf_for(layer_id, model, &buf_map);
-                let dst = buf_name(next_buf);
-                // Copy then softmax in-place on dst
-                writeln!(
-                    c,
-                    "    memcpy({dst}, {src}, {out_elems} * sizeof(float));"
-                )
-                .unwrap();
+                let src = src_buf(&buf_plan, layer_id, model);
+                writeln!(c, "    memcpy({dst}, {src}, {out_elems} * sizeof(float));").unwrap();
                 emit_softmax_block(&mut c, out_elems, &dst);
-                buf_map.insert(layer_id.clone(), next_buf);
-                next_buf = 1 - next_buf;
             }
 
             LayerKind::BatchNorm { epsilon } => {
-                let src = src_buf_for(layer_id, model, &buf_map);
-                let dst = buf_name(next_buf);
+                let src = src_buf(&buf_plan, layer_id, model);
+                let in_shape = input_shape_for(layer_id, model, shape_info);
+                let channels = *in_shape.last().unwrap_or(&out_elems);
                 let gamma_var = weight_var(&format!("{layer_id}.gamma"));
                 let beta_var = weight_var(&format!("{layer_id}.beta"));
                 let mean_var = weight_var(&format!("{layer_id}.running_mean"));
                 let var_var = weight_var(&format!("{layer_id}.running_var"));
 
                 writeln!(c, "    for (int i = 0; i < {out_elems}; i++) {{").unwrap();
-                writeln!(
-                    c,
-                    "        {dst}[i] = {gamma_var}[i] * ({src}[i] - {mean_var}[i]) / sqrtf({var_var}[i] + {epsilon:.10}f) + {beta_var}[i];"
-                )
-                .unwrap();
+                if in_shape.len() > 1 {
+                    writeln!(c, "        int ch = i % {channels};").unwrap();
+                    writeln!(c, "        {dst}[i] = {gamma_var}[ch] * ({src}[i] - {mean_var}[ch]) / sqrtf({var_var}[ch] + {epsilon:.10}f) + {beta_var}[ch];").unwrap();
+                } else {
+                    writeln!(c, "        {dst}[i] = {gamma_var}[i] * ({src}[i] - {mean_var}[i]) / sqrtf({var_var}[i] + {epsilon:.10}f) + {beta_var}[i];").unwrap();
+                }
                 writeln!(c, "    }}").unwrap();
-                buf_map.insert(layer_id.clone(), next_buf);
-                next_buf = 1 - next_buf;
             }
 
             LayerKind::Add => {
-                // Sum all inputs into dst
                 let input_ids = get_input_layer_ids(layer_id, model);
-                let dst = buf_name(next_buf);
                 if let Some(first_id) = input_ids.first() {
-                    let first_buf = buf_map.get(*first_id).copied().unwrap_or(0);
-                    let first_src = buf_name(first_buf);
-                    writeln!(
-                        c,
-                        "    memcpy({dst}, {first_src}, {out_elems} * sizeof(float));"
-                    )
-                    .unwrap();
+                    let first_src = format!("nnc_buf_{}", buf_plan.slot[*first_id]);
+                    writeln!(c, "    memcpy({dst}, {first_src}, {out_elems} * sizeof(float));").unwrap();
                     for add_id in input_ids.iter().skip(1) {
-                        let add_buf = buf_map.get(*add_id).copied().unwrap_or(0);
-                        let add_src = buf_name(add_buf);
+                        let add_src = format!("nnc_buf_{}", buf_plan.slot[*add_id]);
                         writeln!(c, "    for (int i = 0; i < {out_elems}; i++) {{").unwrap();
                         writeln!(c, "        {dst}[i] += {add_src}[i];").unwrap();
                         writeln!(c, "    }}").unwrap();
                     }
                 }
-                buf_map.insert(layer_id.clone(), next_buf);
-                next_buf = 1 - next_buf;
             }
 
             LayerKind::Concat { .. } => {
                 let input_ids = get_input_layer_ids(layer_id, model);
-                let dst = buf_name(next_buf);
                 let mut offset = 0usize;
                 for cat_id in &input_ids {
                     let cat_shape = shape_info.shapes.get(*cat_id).unwrap();
                     let cat_elems = shape_elems(cat_shape) * batch;
-                    let cat_buf = buf_map.get(*cat_id).copied().unwrap_or(0);
-                    let cat_src = buf_name(cat_buf);
-                    writeln!(
-                        c,
-                        "    memcpy({dst} + {offset}, {cat_src}, {cat_elems} * sizeof(float));"
-                    )
-                    .unwrap();
+                    let cat_src = format!("nnc_buf_{}", buf_plan.slot[*cat_id]);
+                    writeln!(c, "    memcpy({dst} + {offset}, {cat_src}, {cat_elems} * sizeof(float));").unwrap();
                     offset += cat_elems;
                 }
-                buf_map.insert(layer_id.clone(), next_buf);
-                next_buf = 1 - next_buf;
             }
 
-            LayerKind::Conv2D { .. } | LayerKind::MaxPool2D { .. } | LayerKind::AvgPool2D { .. } => {
-                // Placeholder: not yet implemented for MVP
-                writeln!(c, "    /* TODO: {layer_id} — layer type not yet emitted */").unwrap();
-                buf_map.insert(layer_id.clone(), next_buf);
-                next_buf = 1 - next_buf;
+            LayerKind::Conv2D { filters, kernel, stride, padding } => {
+                let src = src_buf(&buf_plan, layer_id, model);
+                let in_shape = input_shape_for(layer_id, model, shape_info);
+                let (ih, iw, ic) = (in_shape[0], in_shape[1], in_shape[2]);
+                let kh = kernel.height();
+                let kw = kernel.width();
+                let (oh, ow) = (out_shape[0], out_shape[1]);
+                let w_var = weight_var(&format!("{layer_id}.weight"));
+                let b_var = weight_var(&format!("{layer_id}.bias"));
+
+                match padding {
+                    Padding::Valid => {
+                        writeln!(c, "    for (int oh = 0; oh < {oh}; oh++) {{").unwrap();
+                        writeln!(c, "      for (int ow_ = 0; ow_ < {ow}; ow_++) {{").unwrap();
+                        writeln!(c, "        for (int f = 0; f < {filters}; f++) {{").unwrap();
+                        writeln!(c, "          float sum = {b_var}[f];").unwrap();
+                        writeln!(c, "          for (int kh = 0; kh < {kh}; kh++) {{").unwrap();
+                        writeln!(c, "            for (int kw_ = 0; kw_ < {kw}; kw_++) {{").unwrap();
+                        writeln!(c, "              for (int ci = 0; ci < {ic}; ci++) {{").unwrap();
+                        writeln!(c, "                int ih_ = oh * {stride} + kh;").unwrap();
+                        writeln!(c, "                int iw_ = ow_ * {stride} + kw_;").unwrap();
+                        writeln!(c, "                sum += {src}[(ih_ * {iw} + iw_) * {ic} + ci] * {w_var}[((f * {ic} + ci) * {kh} + kh) * {kw} + kw_];").unwrap();
+                        writeln!(c, "              }}").unwrap();
+                        writeln!(c, "            }}").unwrap();
+                        writeln!(c, "          }}").unwrap();
+                        writeln!(c, "          {dst}[(oh * {ow} + ow_) * {filters} + f] = sum;").unwrap();
+                        writeln!(c, "        }}").unwrap();
+                        writeln!(c, "      }}").unwrap();
+                        writeln!(c, "    }}").unwrap();
+                    }
+                    Padding::Same => {
+                        let pad_h = (kh - 1) / 2;
+                        let pad_w = (kw - 1) / 2;
+                        writeln!(c, "    for (int oh = 0; oh < {oh}; oh++) {{").unwrap();
+                        writeln!(c, "      for (int ow_ = 0; ow_ < {ow}; ow_++) {{").unwrap();
+                        writeln!(c, "        for (int f = 0; f < {filters}; f++) {{").unwrap();
+                        writeln!(c, "          float sum = {b_var}[f];").unwrap();
+                        writeln!(c, "          for (int kh = 0; kh < {kh}; kh++) {{").unwrap();
+                        writeln!(c, "            for (int kw_ = 0; kw_ < {kw}; kw_++) {{").unwrap();
+                        writeln!(c, "              int ih_ = oh * {stride} + kh - {pad_h};").unwrap();
+                        writeln!(c, "              int iw_ = ow_ * {stride} + kw_ - {pad_w};").unwrap();
+                        writeln!(c, "              if (ih_ >= 0 && ih_ < {ih} && iw_ >= 0 && iw_ < {iw}) {{").unwrap();
+                        writeln!(c, "                for (int ci = 0; ci < {ic}; ci++) {{").unwrap();
+                        writeln!(c, "                  sum += {src}[(ih_ * {iw} + iw_) * {ic} + ci] * {w_var}[((f * {ic} + ci) * {kh} + kh) * {kw} + kw_];").unwrap();
+                        writeln!(c, "                }}").unwrap();
+                        writeln!(c, "              }}").unwrap();
+                        writeln!(c, "            }}").unwrap();
+                        writeln!(c, "          }}").unwrap();
+                        writeln!(c, "          {dst}[(oh * {ow} + ow_) * {filters} + f] = sum;").unwrap();
+                        writeln!(c, "        }}").unwrap();
+                        writeln!(c, "      }}").unwrap();
+                        writeln!(c, "    }}").unwrap();
+                    }
+                }
+            }
+
+            LayerKind::MaxPool2D { kernel, stride } => {
+                let src = src_buf(&buf_plan, layer_id, model);
+                let in_shape = input_shape_for(layer_id, model, shape_info);
+                let (iw_dim, channels) = (in_shape[1], in_shape[2]);
+                let kh = kernel.height();
+                let kw = kernel.width();
+                let s = stride.unwrap_or(kh);
+                let (oh, ow) = (out_shape[0], out_shape[1]);
+
+                writeln!(c, "    for (int oh = 0; oh < {oh}; oh++) {{").unwrap();
+                writeln!(c, "      for (int ow_ = 0; ow_ < {ow}; ow_++) {{").unwrap();
+                writeln!(c, "        for (int ch = 0; ch < {channels}; ch++) {{").unwrap();
+                writeln!(c, "          float mv = -1e38f;").unwrap();
+                writeln!(c, "          for (int kh = 0; kh < {kh}; kh++) {{").unwrap();
+                writeln!(c, "            for (int kw_ = 0; kw_ < {kw}; kw_++) {{").unwrap();
+                writeln!(c, "              int ih_ = oh * {s} + kh;").unwrap();
+                writeln!(c, "              int iw_ = ow_ * {s} + kw_;").unwrap();
+                writeln!(c, "              float v = {src}[(ih_ * {iw_dim} + iw_) * {channels} + ch];").unwrap();
+                writeln!(c, "              if (v > mv) mv = v;").unwrap();
+                writeln!(c, "            }}").unwrap();
+                writeln!(c, "          }}").unwrap();
+                writeln!(c, "          {dst}[(oh * {ow} + ow_) * {channels} + ch] = mv;").unwrap();
+                writeln!(c, "        }}").unwrap();
+                writeln!(c, "      }}").unwrap();
+                writeln!(c, "    }}").unwrap();
+            }
+
+            LayerKind::AvgPool2D { kernel, stride } => {
+                let src = src_buf(&buf_plan, layer_id, model);
+                let in_shape = input_shape_for(layer_id, model, shape_info);
+                let (iw_dim, channels) = (in_shape[1], in_shape[2]);
+                let kh = kernel.height();
+                let kw = kernel.width();
+                let s = stride.unwrap_or(kh);
+                let (oh, ow) = (out_shape[0], out_shape[1]);
+                let pool_size = kh * kw;
+
+                writeln!(c, "    for (int oh = 0; oh < {oh}; oh++) {{").unwrap();
+                writeln!(c, "      for (int ow_ = 0; ow_ < {ow}; ow_++) {{").unwrap();
+                writeln!(c, "        for (int ch = 0; ch < {channels}; ch++) {{").unwrap();
+                writeln!(c, "          float s = 0.0f;").unwrap();
+                writeln!(c, "          for (int kh = 0; kh < {kh}; kh++) {{").unwrap();
+                writeln!(c, "            for (int kw_ = 0; kw_ < {kw}; kw_++) {{").unwrap();
+                writeln!(c, "              int ih_ = oh * {s} + kh;").unwrap();
+                writeln!(c, "              int iw_ = ow_ * {s} + kw_;").unwrap();
+                writeln!(c, "              s += {src}[(ih_ * {iw_dim} + iw_) * {channels} + ch];").unwrap();
+                writeln!(c, "            }}").unwrap();
+                writeln!(c, "          }}").unwrap();
+                writeln!(c, "          {dst}[(oh * {ow} + ow_) * {channels} + ch] = s / {pool_size}.0f;").unwrap();
+                writeln!(c, "        }}").unwrap();
+                writeln!(c, "      }}").unwrap();
+                writeln!(c, "    }}").unwrap();
             }
         }
 
@@ -356,8 +384,8 @@ pub fn emit_source(
     }
 
     // Copy final result to output
-    let final_buf = buf_map.get(output_layer_id).copied().unwrap_or(0);
-    let final_src = buf_name(final_buf);
+    let final_slot = buf_plan.slot[output_layer_id];
+    let final_src = format!("nnc_buf_{final_slot}");
     writeln!(
         c,
         "    memcpy(out_ptr, {final_src}, {output_elems} * sizeof(float));"
@@ -373,29 +401,75 @@ pub fn emit_source(
     c
 }
 
-// ── Helpers ──────────────────────────────────────────────────────
+// ── Buffer planning ──────────────────────────────────────────────
 
-fn buf_name(idx: i32) -> String {
-    if idx == 0 {
-        "nnc_workspace_a".to_string()
-    } else {
-        "nnc_workspace_b".to_string()
+use crate::ir::model::Padding;
+
+struct BufferPlan {
+    /// Buffer slot index for each layer.
+    slot: std::collections::HashMap<String, usize>,
+    /// Total number of buffer slots needed.
+    num_slots: usize,
+}
+
+fn plan_buffers(model: &Model, topo_order: &[String]) -> BufferPlan {
+    // Compute last_use: for each layer, the topo index of its last consumer.
+    let mut last_use: std::collections::HashMap<&str, usize> = std::collections::HashMap::new();
+    for (idx, layer_id) in topo_order.iter().enumerate() {
+        let input_ids = get_input_layer_ids(layer_id, model);
+        for src_id in input_ids {
+            let entry = last_use.entry(src_id).or_insert(idx);
+            if idx > *entry {
+                *entry = idx;
+            }
+        }
+    }
+    // Layers with no consumers (output layer) last_use = their own index
+    for (idx, layer_id) in topo_order.iter().enumerate() {
+        last_use.entry(layer_id.as_str()).or_insert(idx);
+    }
+
+    let mut slot_map: std::collections::HashMap<String, usize> = std::collections::HashMap::new();
+    let mut slot_free_after: Vec<usize> = Vec::new(); // slot -> topo index when it becomes free
+    let mut num_slots: usize = 0;
+
+    for (idx, layer_id) in topo_order.iter().enumerate() {
+        // Find a free slot: one whose free_after < idx
+        let reuse = slot_free_after
+            .iter()
+            .position(|&free_at| free_at < idx);
+        let slot = match reuse {
+            Some(s) => {
+                slot_free_after[s] = *last_use.get(layer_id.as_str()).unwrap_or(&idx);
+                s
+            }
+            None => {
+                let s = num_slots;
+                num_slots += 1;
+                slot_free_after.push(*last_use.get(layer_id.as_str()).unwrap_or(&idx));
+                s
+            }
+        };
+        slot_map.insert(layer_id.clone(), slot);
+    }
+
+    BufferPlan {
+        slot: slot_map,
+        num_slots: num_slots.max(1),
     }
 }
 
-fn src_buf_for(
-    layer_id: &str,
-    model: &Model,
-    buf_map: &std::collections::HashMap<String, i32>,
-) -> String {
+fn src_buf(plan: &BufferPlan, layer_id: &str, model: &Model) -> String {
     let input_ids = get_input_layer_ids(layer_id, model);
     if let Some(first) = input_ids.first() {
-        let idx = buf_map.get(*first).copied().unwrap_or(0);
-        buf_name(idx)
+        let slot = plan.slot[*first];
+        format!("nnc_buf_{slot}")
     } else {
-        "nnc_workspace_a".to_string()
+        "nnc_buf_0".to_string()
     }
 }
+
+// ── Helpers ──────────────────────────────────────────────────────
 
 fn get_input_layer_ids<'a>(layer_id: &str, model: &'a Model) -> Vec<&'a str> {
     model
