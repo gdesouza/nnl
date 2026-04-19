@@ -20,6 +20,7 @@ pub struct Config {
     pub preprocess: Preprocess,
     pub preprocess_mean: Option<Vec<f64>>,
     pub preprocess_std: Option<Vec<f64>>,
+    #[allow(dead_code)]
     pub io: IoMode,
 }
 
@@ -103,6 +104,7 @@ impl std::fmt::Display for IoMode {
 pub struct Layer {
     pub id: String,
     pub kind: LayerKind,
+    #[allow(dead_code)]
     pub span: Span,
 }
 
@@ -134,15 +136,18 @@ pub enum LayerKind {
         epsilon: f64,
     },
     Dropout {
+        #[allow(dead_code)]
         rate: f64,
     },
     Add,
     Concat {
+        #[allow(dead_code)]
         axis: i64,
     },
     ReLU,
     Sigmoid,
     Softmax {
+        #[allow(dead_code)]
         axis: i64,
     },
 }

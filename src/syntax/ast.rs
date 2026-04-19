@@ -8,6 +8,7 @@ pub struct File {
 }
 
 #[derive(Debug, Clone)]
+#[allow(dead_code)]
 pub struct Version {
     pub number: f64,
     pub span: Span,
@@ -19,6 +20,7 @@ pub struct ModelDecl {
     pub config: ConfigBlock,
     pub layers: Vec<LayerDecl>,
     pub connections: Option<ConnectionBlock>,
+    #[allow(dead_code)]
     pub span: Span,
 }
 
@@ -32,6 +34,7 @@ pub struct ConfigBlock {
 pub struct Setting {
     pub key: Ident,
     pub value: Value,
+    #[allow(dead_code)]
     pub span: Span,
 }
 
@@ -40,6 +43,7 @@ pub struct LayerDecl {
     pub name: Ident,
     pub layer_type: LayerType,
     pub params: Vec<Param>,
+    #[allow(dead_code)]
     pub span: Span,
 }
 
@@ -47,12 +51,14 @@ pub struct LayerDecl {
 pub struct Param {
     pub key: Ident,
     pub value: Value,
+    #[allow(dead_code)]
     pub span: Span,
 }
 
 #[derive(Debug, Clone)]
 pub struct ConnectionBlock {
     pub connections: Vec<Connection>,
+    #[allow(dead_code)]
     pub span: Span,
 }
 
@@ -61,6 +67,7 @@ pub struct Connection {
     /// Source layer(s). Single-element for `a -> b`, multiple for `[a, b] -> c`.
     pub sources: Vec<Ident>,
     pub target: Ident,
+    #[allow(dead_code)]
     pub span: Span,
 }
 
@@ -75,7 +82,7 @@ pub enum Value {
     String(String, Span),
     Integer(u64, Span),
     Float(f64, Span),
-    Bool(bool, Span),
+    Bool(#[allow(dead_code)] bool, Span),
     Shape(Vec<f64>, Span),
 }
 

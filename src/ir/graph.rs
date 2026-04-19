@@ -26,14 +26,18 @@ pub fn build_graph(model: &Model) -> Result<GraphInfo, GraphError> {
 
     // Add edges
     for edge in &model.edges {
-        let src = node_map.get(edge.source.as_str()).ok_or_else(|| GraphError {
-            code: "E001",
-            message: format!("connection references unknown layer `{}`", edge.source),
-        })?;
-        let tgt = node_map.get(edge.target.as_str()).ok_or_else(|| GraphError {
-            code: "E001",
-            message: format!("connection references unknown layer `{}`", edge.target),
-        })?;
+        let src = node_map
+            .get(edge.source.as_str())
+            .ok_or_else(|| GraphError {
+                code: "E001",
+                message: format!("connection references unknown layer `{}`", edge.source),
+            })?;
+        let tgt = node_map
+            .get(edge.target.as_str())
+            .ok_or_else(|| GraphError {
+                code: "E001",
+                message: format!("connection references unknown layer `{}`", edge.target),
+            })?;
         graph.add_edge(*src, *tgt, ());
     }
 
@@ -46,10 +50,7 @@ pub fn build_graph(model: &Model) -> Result<GraphInfo, GraphError> {
         }
     })?;
 
-    let topo_order: Vec<String> = sorted
-        .iter()
-        .map(|idx| graph[*idx].to_string())
-        .collect();
+    let topo_order: Vec<String> = sorted.iter().map(|idx| graph[*idx].to_string()).collect();
 
     // Check E001: non-Input layers must have at least one incoming edge
     let mut warnings = Vec::new();

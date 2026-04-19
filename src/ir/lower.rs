@@ -189,7 +189,9 @@ fn lower_layer(layer: &ast::LayerDecl) -> Result<Layer, LowerError> {
                 Some(other) => {
                     let p = find_param(&layer.params, "padding").unwrap();
                     return Err(LowerError {
-                        message: format!("invalid padding `{other}`, expected \"valid\" or \"same\""),
+                        message: format!(
+                            "invalid padding `{other}`, expected \"valid\" or \"same\""
+                        ),
                         span: p.value.span().clone(),
                     });
                 }
@@ -270,7 +272,7 @@ fn build_edges(model: &ast::ModelDecl) -> Result<Vec<Edge>, LowerError> {
 
 // --- Helper functions for extracting typed values from AST params/values ---
 
-fn get_string<'a>(value: &'a ast::Value) -> Result<&'a str, LowerError> {
+fn get_string(value: &ast::Value) -> Result<&str, LowerError> {
     match value {
         ast::Value::String(s, _) => Ok(s.as_str()),
         other => Err(LowerError {
@@ -382,10 +384,7 @@ fn get_optional_string_param<'a>(
     }
 }
 
-fn get_optional_float_param(
-    params: &[ast::Param],
-    name: &str,
-) -> Result<Option<f64>, LowerError> {
+fn get_optional_float_param(params: &[ast::Param], name: &str) -> Result<Option<f64>, LowerError> {
     match find_param(params, name) {
         Some(p) => match &p.value {
             ast::Value::Float(v, _) => Ok(Some(*v)),
@@ -399,10 +398,7 @@ fn get_optional_float_param(
     }
 }
 
-fn get_optional_int_param(
-    params: &[ast::Param],
-    name: &str,
-) -> Result<Option<i64>, LowerError> {
+fn get_optional_int_param(params: &[ast::Param], name: &str) -> Result<Option<i64>, LowerError> {
     match find_param(params, name) {
         Some(p) => match &p.value {
             ast::Value::Integer(v, _) => Ok(Some(*v as i64)),

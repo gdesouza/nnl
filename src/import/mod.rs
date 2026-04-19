@@ -93,8 +93,7 @@ pub fn import_onnx(
     let mut layer_counter: HashMap<String, usize> = HashMap::new();
 
     for node in &graph.node {
-        let (layer_id, layer_def, weight_info) =
-            map_node(node, &initializers, &mut layer_counter)?;
+        let (layer_id, layer_def, weight_info) = map_node(node, &initializers, &mut layer_counter)?;
 
         if let Some(def) = layer_def {
             // Write weights
@@ -129,10 +128,10 @@ pub fn import_onnx(
                 if inp_name.is_empty() || initializers.contains_key(inp_name.as_str()) {
                     continue;
                 }
-                if let Some(src) = output_map.get(inp_name) {
-                    if !sources.contains(src) {
-                        sources.push(src.clone());
-                    }
+                if let Some(src) = output_map.get(inp_name)
+                    && !sources.contains(src)
+                {
+                    sources.push(src.clone());
                 }
             }
 
@@ -147,10 +146,10 @@ pub fn import_onnx(
         } else {
             // Unsupported op — pass through outputs
             for (i, out) in node.output.iter().enumerate() {
-                if let Some(inp) = node.input.get(i) {
-                    if let Some(src) = output_map.get(inp) {
-                        output_map.insert(out.clone(), src.clone());
-                    }
+                if let Some(inp) = node.input.get(i)
+                    && let Some(src) = output_map.get(inp)
+                {
+                    output_map.insert(out.clone(), src.clone());
                 }
             }
             // Add as comment
@@ -255,36 +254,32 @@ fn map_node(
                 .map(|a| a.i)
                 .unwrap_or(0);
             // Weight is typically the second input
-            if let Some(w_name) = node.input.get(1) {
-                if let Some(tensor) = initializers.get(w_name.as_str()) {
-                    // transB=1: shape [out, in], first dim is units
-                    // transB=0: shape [in, out], last dim is units
-                    units = if trans_b != 0 {
-                        *tensor.dims.first().unwrap_or(&0) as usize
-                    } else {
-                        *tensor.dims.last().unwrap_or(&0) as usize
-                    };
-                    weights.push(WeightRef {
-                        initializer_name: w_name.clone(),
-                        param_name: "weight".to_string(),
-                        transpose: trans_b != 0,
-                    });
-                }
+            if let Some(w_name) = node.input.get(1)
+                && let Some(tensor) = initializers.get(w_name.as_str())
+            {
+                // transB=1: shape [out, in], first dim is units
+                // transB=0: shape [in, out], last dim is units
+                units = if trans_b != 0 {
+                    *tensor.dims.first().unwrap_or(&0) as usize
+                } else {
+                    *tensor.dims.last().unwrap_or(&0) as usize
+                };
+                weights.push(WeightRef {
+                    initializer_name: w_name.clone(),
+                    param_name: "weight".to_string(),
+                    transpose: trans_b != 0,
+                });
             }
-            if let Some(b_name) = node.input.get(2) {
-                if initializers.contains_key(b_name.as_str()) {
-                    weights.push(WeightRef {
-                        initializer_name: b_name.clone(),
-                        param_name: "bias".to_string(),
-                        transpose: false,
-                    });
-                }
+            if let Some(b_name) = node.input.get(2)
+                && initializers.contains_key(b_name.as_str())
+            {
+                weights.push(WeightRef {
+                    initializer_name: b_name.clone(),
+                    param_name: "bias".to_string(),
+                    transpose: false,
+                });
             }
-            Ok((
-                layer_id,
-                Some(format!("Dense(units: {units})")),
-                weights,
-            ))
+            Ok((layer_id, Some(format!("Dense(units: {units})")), weights))
         }
         "Conv" => {
             let mut weights = Vec::new();
@@ -293,27 +288,27 @@ fn map_node(
             let mut stride = 1;
             let mut padding = "valid";
 
-            if let Some(w_name) = node.input.get(1) {
-                if let Some(tensor) = initializers.get(w_name.as_str()) {
-                    filters = tensor.dims.first().copied().unwrap_or(0) as usize;
-                    if tensor.dims.len() >= 4 {
-                        kernel = tensor.dims[2] as usize;
-                    }
-                    weights.push(WeightRef {
-                        initializer_name: w_name.clone(),
-                        param_name: "weight".to_string(),
-                        transpose: false,
-                    });
+            if let Some(w_name) = node.input.get(1)
+                && let Some(tensor) = initializers.get(w_name.as_str())
+            {
+                filters = tensor.dims.first().copied().unwrap_or(0) as usize;
+                if tensor.dims.len() >= 4 {
+                    kernel = tensor.dims[2] as usize;
                 }
+                weights.push(WeightRef {
+                    initializer_name: w_name.clone(),
+                    param_name: "weight".to_string(),
+                    transpose: false,
+                });
             }
-            if let Some(b_name) = node.input.get(2) {
-                if initializers.contains_key(b_name.as_str()) {
-                    weights.push(WeightRef {
-                        initializer_name: b_name.clone(),
-                        param_name: "bias".to_string(),
-                        transpose: false,
-                    });
-                }
+            if let Some(b_name) = node.input.get(2)
+                && initializers.contains_key(b_name.as_str())
+            {
+                weights.push(WeightRef {
+                    initializer_name: b_name.clone(),
+                    param_name: "bias".to_string(),
+                    transpose: false,
+                });
             }
 
             for attr in &node.attribute {
@@ -348,10 +343,10 @@ fn map_node(
         "MaxPool" => {
             let mut kernel = 2;
             for attr in &node.attribute {
-                if attr.name == "kernel_shape" {
-                    if let Some(&k) = attr.ints.first() {
-                        kernel = k as usize;
-                    }
+                if attr.name == "kernel_shape"
+                    && let Some(&k) = attr.ints.first()
+                {
+                    kernel = k as usize;
                 }
             }
             Ok((
@@ -363,10 +358,10 @@ fn map_node(
         "AveragePool" => {
             let mut kernel = 2;
             for attr in &node.attribute {
-                if attr.name == "kernel_shape" {
-                    if let Some(&k) = attr.ints.first() {
-                        kernel = k as usize;
-                    }
+                if attr.name == "kernel_shape"
+                    && let Some(&k) = attr.ints.first()
+                {
+                    kernel = k as usize;
                 }
             }
             Ok((
@@ -380,14 +375,14 @@ fn map_node(
             let mut weights = Vec::new();
             let param_names = ["scale", "bias", "mean", "var"];
             for (i, pname) in param_names.iter().enumerate() {
-                if let Some(inp_name) = node.input.get(i + 1) {
-                    if initializers.contains_key(inp_name.as_str()) {
-                        weights.push(WeightRef {
-                            initializer_name: inp_name.clone(),
-                            param_name: pname.to_string(),
-                            transpose: false,
-                        });
-                    }
+                if let Some(inp_name) = node.input.get(i + 1)
+                    && initializers.contains_key(inp_name.as_str())
+                {
+                    weights.push(WeightRef {
+                        initializer_name: inp_name.clone(),
+                        param_name: pname.to_string(),
+                        transpose: false,
+                    });
                 }
             }
             Ok((layer_id, Some("BatchNorm()".to_string()), weights))
@@ -462,37 +457,33 @@ fn sanitize_id(name: &str) -> String {
 }
 
 fn detect_input_shape(graph: &onnx::GraphProto) -> Vec<String> {
-    let init_names: std::collections::HashSet<&str> = graph
-        .initializer
-        .iter()
-        .map(|t| t.name.as_str())
-        .collect();
+    let init_names: std::collections::HashSet<&str> =
+        graph.initializer.iter().map(|t| t.name.as_str()).collect();
 
     for inp in &graph.input {
         if init_names.contains(inp.name.as_str()) {
             continue;
         }
-        if let Some(tp) = &inp.r#type {
-            if let Some(tt) = &tp.tensor_type {
-                if let Some(shape) = &tt.shape {
-                    // Skip the first dimension (batch) — it's either
-                    // a symbolic param or a concrete 1.
-                    let dims: Vec<String> = shape
-                        .dim
-                        .iter()
-                        .skip(1)
-                        .filter_map(|d| {
-                            if d.dim_value > 0 {
-                                Some(d.dim_value.to_string())
-                            } else {
-                                None
-                            }
-                        })
-                        .collect();
-                    if !dims.is_empty() {
-                        return dims;
+        if let Some(tp) = &inp.r#type
+            && let Some(tt) = &tp.tensor_type
+            && let Some(shape) = &tt.shape
+        {
+            // Skip the first dimension (batch) — it's either
+            // a symbolic param or a concrete 1.
+            let dims: Vec<String> = shape
+                .dim
+                .iter()
+                .skip(1)
+                .filter_map(|d| {
+                    if d.dim_value > 0 {
+                        Some(d.dim_value.to_string())
+                    } else {
+                        None
                     }
-                }
+                })
+                .collect();
+            if !dims.is_empty() {
+                return dims;
             }
         }
     }
@@ -502,22 +493,17 @@ fn detect_input_shape(graph: &onnx::GraphProto) -> Vec<String> {
 
 fn is_sequential_flow(connections: &[Connection]) -> bool {
     connections.iter().all(|c| c.from.len() == 1)
-        && connections
-            .windows(2)
-            .all(|w| w[0].to == w[1].from[0])
+        && connections.windows(2).all(|w| w[0].to == w[1].from[0])
 }
 
 fn pathdiff(output_path: &Path, weights_dir: &Path) -> String {
     // Compute weights_dir relative to the output file's parent directory
-    let output_parent = output_path
-        .parent()
-        .unwrap_or(Path::new("."));
+    let output_parent = output_path.parent().unwrap_or(Path::new("."));
 
     // Canonicalize both paths (creating weights_dir first ensures it exists)
     let abs_out = fs::canonicalize(output_parent)
         .unwrap_or_else(|_| fs::canonicalize(".").unwrap_or_else(|_| output_parent.to_path_buf()));
-    let abs_w = fs::canonicalize(weights_dir)
-        .unwrap_or_else(|_| weights_dir.to_path_buf());
+    let abs_w = fs::canonicalize(weights_dir).unwrap_or_else(|_| weights_dir.to_path_buf());
 
     // Build relative path from output dir to weights dir
     let from_parts: Vec<_> = abs_out.components().collect();
@@ -559,9 +545,11 @@ fn write_weight_npy(path: &Path, shape: &[u64], data: &[f32]) -> Result<(), Impo
         .map_err(|e| ImportError {
             message: format!("npy write error: {e}"),
         })?;
-    writer.extend(data.iter().copied()).map_err(|e| ImportError {
-        message: format!("npy write error: {e}"),
-    })?;
+    writer
+        .extend(data.iter().copied())
+        .map_err(|e| ImportError {
+            message: format!("npy write error: {e}"),
+        })?;
     writer.finish().map_err(|e| ImportError {
         message: format!("npy write error: {e}"),
     })?;

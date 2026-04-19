@@ -17,9 +17,7 @@ pub fn required_weights(model: &Model, shape_info: &ShapeInfo) -> Vec<RequiredWe
         let input_shape = get_input_shape(&layer.id, model, shape_info);
         match &layer.kind {
             LayerKind::Dense { units, .. } => {
-                let input_dim: usize = input_shape
-                    .map(|s| s.iter().product())
-                    .unwrap_or(0);
+                let input_dim: usize = input_shape.map(|s| s.iter().product()).unwrap_or(0);
                 // weight: [input_dim, units]
                 required.push(RequiredWeight {
                     name: format!("{}.weight", layer.id),
@@ -34,9 +32,7 @@ pub fn required_weights(model: &Model, shape_info: &ShapeInfo) -> Vec<RequiredWe
             LayerKind::Conv2D {
                 filters, kernel, ..
             } => {
-                let in_channels = input_shape
-                    .and_then(|s| s.last().copied())
-                    .unwrap_or(0);
+                let in_channels = input_shape.and_then(|s| s.last().copied()).unwrap_or(0);
                 let kh = kernel.height();
                 let kw = kernel.width();
                 // weight: [filters, in_channels, kH, kW]
@@ -51,9 +47,7 @@ pub fn required_weights(model: &Model, shape_info: &ShapeInfo) -> Vec<RequiredWe
                 });
             }
             LayerKind::BatchNorm { .. } => {
-                let channels = input_shape
-                    .and_then(|s| s.last().copied())
-                    .unwrap_or(0);
+                let channels = input_shape.and_then(|s| s.last().copied()).unwrap_or(0);
                 for param in &["gamma", "beta", "running_mean", "running_var"] {
                     required.push(RequiredWeight {
                         name: format!("{}.{param}", layer.id),
@@ -74,7 +68,5 @@ fn get_input_shape<'a>(
     shape_info: &'a ShapeInfo,
 ) -> Option<&'a Vec<usize>> {
     let inputs = graph::get_input_layers(model, layer_id);
-    inputs
-        .first()
-        .and_then(|l| shape_info.shapes.get(&l.id))
+    inputs.first().and_then(|l| shape_info.shapes.get(&l.id))
 }

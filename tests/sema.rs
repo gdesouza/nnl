@@ -52,7 +52,9 @@ model test {
         .write_stdin(source)
         .assert()
         .failure()
-        .stderr(predicate::str::contains("missing required config key `weights`"));
+        .stderr(predicate::str::contains(
+            "missing required config key `weights`",
+        ));
 }
 
 #[test]
@@ -111,7 +113,9 @@ model test {
         .write_stdin(source)
         .assert()
         .failure()
-        .stderr(predicate::str::contains("E001").or(predicate::str::contains("no input connection")));
+        .stderr(
+            predicate::str::contains("E001").or(predicate::str::contains("no input connection")),
+        );
 }
 
 #[test]
@@ -180,7 +184,9 @@ model test {
         .write_stdin(source)
         .assert()
         .failure()
-        .stderr(predicate::str::contains("missing required parameter `shape`"));
+        .stderr(predicate::str::contains(
+            "missing required parameter `shape`",
+        ));
 }
 
 #[test]

@@ -8,17 +8,14 @@ pub use tensor::WeightTensor;
 
 use indexmap::IndexMap;
 
-use crate::ir::model::{Model, Precision};
+use crate::ir::model::Model;
 use crate::sema::shapes::ShapeInfo;
 
 /// All loaded and validated weights for a model.
 pub type WeightSet = IndexMap<String, WeightTensor>;
 
 /// Load and validate all weights for a model.
-pub fn load_and_validate(
-    model: &Model,
-    shape_info: &ShapeInfo,
-) -> Result<WeightSet, WeightError> {
+pub fn load_and_validate(model: &Model, shape_info: &ShapeInfo) -> Result<WeightSet, WeightError> {
     let required = required_weights(model, shape_info);
     let mut loaded = load_weights(&model.config.weights, model.config.precision)?;
     let mut result = IndexMap::new();

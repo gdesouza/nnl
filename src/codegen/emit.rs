@@ -111,11 +111,7 @@ pub fn emit_source(
     writeln!(c).unwrap();
 
     // ── Size helpers ─────────────────────────────────────────────
-    writeln!(
-        c,
-        "int {name}_input_size(void) {{ return {input_elems}; }}"
-    )
-    .unwrap();
+    writeln!(c, "int {name}_input_size(void) {{ return {input_elems}; }}").unwrap();
     writeln!(
         c,
         "int {name}_output_size(void) {{ return {output_elems}; }}"
@@ -124,16 +120,8 @@ pub fn emit_source(
     writeln!(c).unwrap();
 
     // ── Inference function ───────────────────────────────────────
-    writeln!(
-        c,
-        "int {name}_infer(const void *input, void *output) {{"
-    )
-    .unwrap();
-    writeln!(
-        c,
-        "    const float *in_ptr = (const float *)input;"
-    )
-    .unwrap();
+    writeln!(c, "int {name}_infer(const void *input, void *output) {{").unwrap();
+    writeln!(c, "    const float *in_ptr = (const float *)input;").unwrap();
     writeln!(c, "    float *out_ptr = (float *)output;").unwrap();
     writeln!(c).unwrap();
 
@@ -144,7 +132,13 @@ pub fn emit_source(
         let slot = buf_plan.slot[layer_id];
         let dst = format!("nnc_buf_{slot}");
 
-        writeln!(c, "    /* layer: {} ({}) */", layer_id, layer.kind.type_name()).unwrap();
+        writeln!(
+            c,
+            "    /* layer: {} ({}) */",
+            layer_id,
+            layer.kind.type_name()
+        )
+        .unwrap();
 
         match &layer.kind {
             LayerKind::Input { shape } => {
@@ -159,7 +153,13 @@ pub fn emit_source(
                         writeln!(c, "    }}").unwrap();
                     }
                     Preprocess::Standardize => {
-                        emit_standardize_loop(&mut c, n, &model.config.preprocess_mean, &model.config.preprocess_std, &dst);
+                        emit_standardize_loop(
+                            &mut c,
+                            n,
+                            &model.config.preprocess_mean,
+                            &model.config.preprocess_std,
+                            &dst,
+                        );
                     }
                 }
             }
@@ -247,7 +247,11 @@ pub fn emit_source(
                 let input_ids = get_input_layer_ids(layer_id, model);
                 if let Some(first_id) = input_ids.first() {
                     let first_src = format!("nnc_buf_{}", buf_plan.slot[*first_id]);
-                    writeln!(c, "    memcpy({dst}, {first_src}, {out_elems} * sizeof(float));").unwrap();
+                    writeln!(
+                        c,
+                        "    memcpy({dst}, {first_src}, {out_elems} * sizeof(float));"
+                    )
+                    .unwrap();
                     for add_id in input_ids.iter().skip(1) {
                         let add_src = format!("nnc_buf_{}", buf_plan.slot[*add_id]);
                         writeln!(c, "    for (int i = 0; i < {out_elems}; i++) {{").unwrap();
@@ -264,12 +268,21 @@ pub fn emit_source(
                     let cat_shape = shape_info.shapes.get(*cat_id).unwrap();
                     let cat_elems = shape_elems(cat_shape) * batch;
                     let cat_src = format!("nnc_buf_{}", buf_plan.slot[*cat_id]);
-                    writeln!(c, "    memcpy({dst} + {offset}, {cat_src}, {cat_elems} * sizeof(float));").unwrap();
+                    writeln!(
+                        c,
+                        "    memcpy({dst} + {offset}, {cat_src}, {cat_elems} * sizeof(float));"
+                    )
+                    .unwrap();
                     offset += cat_elems;
                 }
             }
 
-            LayerKind::Conv2D { filters, kernel, stride, padding } => {
+            LayerKind::Conv2D {
+                filters,
+                kernel,
+                stride,
+                padding,
+            } => {
                 let src = src_buf(&buf_plan, layer_id, model);
                 let in_shape = input_shape_for(layer_id, model, shape_info);
                 let (ih, iw, ic) = (in_shape[0], in_shape[1], in_shape[2]);
@@ -294,7 +307,11 @@ pub fn emit_source(
                         writeln!(c, "              }}").unwrap();
                         writeln!(c, "            }}").unwrap();
                         writeln!(c, "          }}").unwrap();
-                        writeln!(c, "          {dst}[(oh * {ow} + ow_) * {filters} + f] = sum;").unwrap();
+                        writeln!(
+                            c,
+                            "          {dst}[(oh * {ow} + ow_) * {filters} + f] = sum;"
+                        )
+                        .unwrap();
                         writeln!(c, "        }}").unwrap();
                         writeln!(c, "      }}").unwrap();
                         writeln!(c, "    }}").unwrap();
@@ -308,16 +325,27 @@ pub fn emit_source(
                         writeln!(c, "          float sum = {b_var}[f];").unwrap();
                         writeln!(c, "          for (int kh = 0; kh < {kh}; kh++) {{").unwrap();
                         writeln!(c, "            for (int kw_ = 0; kw_ < {kw}; kw_++) {{").unwrap();
-                        writeln!(c, "              int ih_ = oh * {stride} + kh - {pad_h};").unwrap();
-                        writeln!(c, "              int iw_ = ow_ * {stride} + kw_ - {pad_w};").unwrap();
-                        writeln!(c, "              if (ih_ >= 0 && ih_ < {ih} && iw_ >= 0 && iw_ < {iw}) {{").unwrap();
-                        writeln!(c, "                for (int ci = 0; ci < {ic}; ci++) {{").unwrap();
+                        writeln!(c, "              int ih_ = oh * {stride} + kh - {pad_h};")
+                            .unwrap();
+                        writeln!(c, "              int iw_ = ow_ * {stride} + kw_ - {pad_w};")
+                            .unwrap();
+                        writeln!(
+                            c,
+                            "              if (ih_ >= 0 && ih_ < {ih} && iw_ >= 0 && iw_ < {iw}) {{"
+                        )
+                        .unwrap();
+                        writeln!(c, "                for (int ci = 0; ci < {ic}; ci++) {{")
+                            .unwrap();
                         writeln!(c, "                  sum += {src}[(ih_ * {iw} + iw_) * {ic} + ci] * {w_var}[((f * {ic} + ci) * {kh} + kh) * {kw} + kw_];").unwrap();
                         writeln!(c, "                }}").unwrap();
                         writeln!(c, "              }}").unwrap();
                         writeln!(c, "            }}").unwrap();
                         writeln!(c, "          }}").unwrap();
-                        writeln!(c, "          {dst}[(oh * {ow} + ow_) * {filters} + f] = sum;").unwrap();
+                        writeln!(
+                            c,
+                            "          {dst}[(oh * {ow} + ow_) * {filters} + f] = sum;"
+                        )
+                        .unwrap();
                         writeln!(c, "        }}").unwrap();
                         writeln!(c, "      }}").unwrap();
                         writeln!(c, "    }}").unwrap();
@@ -342,11 +370,19 @@ pub fn emit_source(
                 writeln!(c, "            for (int kw_ = 0; kw_ < {kw}; kw_++) {{").unwrap();
                 writeln!(c, "              int ih_ = oh * {s} + kh;").unwrap();
                 writeln!(c, "              int iw_ = ow_ * {s} + kw_;").unwrap();
-                writeln!(c, "              float v = {src}[(ih_ * {iw_dim} + iw_) * {channels} + ch];").unwrap();
+                writeln!(
+                    c,
+                    "              float v = {src}[(ih_ * {iw_dim} + iw_) * {channels} + ch];"
+                )
+                .unwrap();
                 writeln!(c, "              if (v > mv) mv = v;").unwrap();
                 writeln!(c, "            }}").unwrap();
                 writeln!(c, "          }}").unwrap();
-                writeln!(c, "          {dst}[(oh * {ow} + ow_) * {channels} + ch] = mv;").unwrap();
+                writeln!(
+                    c,
+                    "          {dst}[(oh * {ow} + ow_) * {channels} + ch] = mv;"
+                )
+                .unwrap();
                 writeln!(c, "        }}").unwrap();
                 writeln!(c, "      }}").unwrap();
                 writeln!(c, "    }}").unwrap();
@@ -370,10 +406,18 @@ pub fn emit_source(
                 writeln!(c, "            for (int kw_ = 0; kw_ < {kw}; kw_++) {{").unwrap();
                 writeln!(c, "              int ih_ = oh * {s} + kh;").unwrap();
                 writeln!(c, "              int iw_ = ow_ * {s} + kw_;").unwrap();
-                writeln!(c, "              s += {src}[(ih_ * {iw_dim} + iw_) * {channels} + ch];").unwrap();
+                writeln!(
+                    c,
+                    "              s += {src}[(ih_ * {iw_dim} + iw_) * {channels} + ch];"
+                )
+                .unwrap();
                 writeln!(c, "            }}").unwrap();
                 writeln!(c, "          }}").unwrap();
-                writeln!(c, "          {dst}[(oh * {ow} + ow_) * {channels} + ch] = s / {pool_size}.0f;").unwrap();
+                writeln!(
+                    c,
+                    "          {dst}[(oh * {ow} + ow_) * {channels} + ch] = s / {pool_size}.0f;"
+                )
+                .unwrap();
                 writeln!(c, "        }}").unwrap();
                 writeln!(c, "      }}").unwrap();
                 writeln!(c, "    }}").unwrap();
@@ -435,9 +479,7 @@ fn plan_buffers(model: &Model, topo_order: &[String]) -> BufferPlan {
 
     for (idx, layer_id) in topo_order.iter().enumerate() {
         // Find a free slot: one whose free_after < idx
-        let reuse = slot_free_after
-            .iter()
-            .position(|&free_at| free_at < idx);
+        let reuse = slot_free_after.iter().position(|&free_at| free_at < idx);
         let slot = match reuse {
             Some(s) => {
                 slot_free_after[s] = *last_use.get(layer_id.as_str()).unwrap_or(&idx);
@@ -480,11 +522,7 @@ fn get_input_layer_ids<'a>(layer_id: &str, model: &'a Model) -> Vec<&'a str> {
         .collect()
 }
 
-fn input_shape_for(
-    layer_id: &str,
-    model: &Model,
-    shape_info: &ShapeInfo,
-) -> Vec<usize> {
+fn input_shape_for(layer_id: &str, model: &Model, shape_info: &ShapeInfo) -> Vec<usize> {
     let ids = get_input_layer_ids(layer_id, model);
     if let Some(first) = ids.first() {
         shape_info.shapes.get(*first).cloned().unwrap_or_default()
@@ -550,11 +588,7 @@ fn emit_standardize_loop(
                 write!(c, "{:.8}f", *v as f32).unwrap();
             }
             writeln!(c, "}};").unwrap();
-            writeln!(
-                c,
-                "        {dst}[i] = (in_ptr[i] - mu[ch]) / sd[ch];"
-            )
-            .unwrap();
+            writeln!(c, "        {dst}[i] = (in_ptr[i] - mu[ch]) / sd[ch];").unwrap();
             writeln!(c, "    }}").unwrap();
         }
         _ => {

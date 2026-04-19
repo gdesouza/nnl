@@ -6,8 +6,8 @@ use npyz::NpyFile;
 use npyz::{TypeChar, TypeStr};
 
 use crate::ir::model::Precision;
-use crate::weights::tensor::WeightTensor;
 use crate::weights::WeightError;
+use crate::weights::tensor::WeightTensor;
 
 /// Load weights from a path (directory of .npy files, or .npz archive).
 pub fn load_weights(
@@ -88,13 +88,16 @@ fn load_from_npz(
     let mut weights = HashMap::new();
 
     for name in &names {
-        let npy = archive.by_name(name).map_err(|e| WeightError {
-            code: "E003",
-            message: format!("cannot read array `{name}` from npz: {e}"),
-        })?.ok_or_else(|| WeightError {
-            code: "E003",
-            message: format!("array `{name}` not found in npz archive"),
-        })?;
+        let npy = archive
+            .by_name(name)
+            .map_err(|e| WeightError {
+                code: "E003",
+                message: format!("cannot read array `{name}` from npz: {e}"),
+            })?
+            .ok_or_else(|| WeightError {
+                code: "E003",
+                message: format!("array `{name}` not found in npz archive"),
+            })?;
 
         let tensor = npy_to_tensor(npy, precision, name)?;
         weights.insert(name.clone(), tensor);
@@ -104,7 +107,11 @@ fn load_from_npz(
 }
 
 /// Load a single .npy from bytes already in memory.
-fn load_npy_bytes(bytes: &[u8], precision: Precision, name: &str) -> Result<WeightTensor, WeightError> {
+fn load_npy_bytes(
+    bytes: &[u8],
+    precision: Precision,
+    name: &str,
+) -> Result<WeightTensor, WeightError> {
     let npy = NpyFile::new(bytes).map_err(|e| WeightError {
         code: "E003",
         message: format!("cannot parse npy data for `{name}`: {e}"),
@@ -155,10 +162,7 @@ fn npy_to_tensor<R: Read>(
                 });
             };
 
-            let byte_data: Vec<u8> = data
-                .iter()
-                .flat_map(|v| v.to_ne_bytes())
-                .collect();
+            let byte_data: Vec<u8> = data.iter().flat_map(|v| v.to_ne_bytes()).collect();
 
             Ok(WeightTensor {
                 shape,
@@ -172,10 +176,7 @@ fn npy_to_tensor<R: Read>(
                 message: format!("cannot read float64 data from `{name}`: {e}"),
             })?;
 
-            let byte_data: Vec<u8> = data
-                .iter()
-                .flat_map(|v| v.to_ne_bytes())
-                .collect();
+            let byte_data: Vec<u8> = data.iter().flat_map(|v| v.to_ne_bytes()).collect();
 
             Ok(WeightTensor {
                 shape,
@@ -183,12 +184,10 @@ fn npy_to_tensor<R: Read>(
                 elem_bytes: 8,
             })
         }
-        Precision::Int8 => {
-            Err(WeightError {
-                code: "E003",
-                message: format!("int8 weight loading is not yet supported for `{name}`"),
-            })
-        }
+        Precision::Int8 => Err(WeightError {
+            code: "E003",
+            message: format!("int8 weight loading is not yet supported for `{name}`"),
+        }),
     }
 }
 

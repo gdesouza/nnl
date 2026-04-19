@@ -1,8 +1,8 @@
 use std::path::Path;
 
 use assert_cmd::Command;
-use predicates::prelude::*;
 use npyz::WriterBuilder;
+use predicates::prelude::*;
 
 fn nnc() -> Command {
     Command::cargo_bin("nnc").unwrap()
@@ -30,22 +30,14 @@ fn create_mlp_weights(dir: &Path) {
     std::fs::create_dir_all(dir).unwrap();
 
     // fc1.weight: [4, 3] — input_dim=4, units=3
-    write_npy_f32(
-        &dir.join("fc1.weight.npy"),
-        &[4, 3],
-        &vec![0.1_f32; 12],
-    );
+    write_npy_f32(&dir.join("fc1.weight.npy"), &[4, 3], &[0.1_f32; 12]);
     // fc1.bias: [3]
-    write_npy_f32(&dir.join("fc1.bias.npy"), &[3], &vec![0.0_f32; 3]);
+    write_npy_f32(&dir.join("fc1.bias.npy"), &[3], &[0.0_f32; 3]);
 
     // fc2.weight: [3, 2] — input_dim=3, units=2
-    write_npy_f32(
-        &dir.join("fc2.weight.npy"),
-        &[3, 2],
-        &vec![0.2_f32; 6],
-    );
+    write_npy_f32(&dir.join("fc2.weight.npy"), &[3, 2], &[0.2_f32; 6]);
     // fc2.bias: [2]
-    write_npy_f32(&dir.join("fc2.bias.npy"), &[2], &vec![0.0_f32; 2]);
+    write_npy_f32(&dir.join("fc2.bias.npy"), &[2], &[0.0_f32; 2]);
 }
 
 #[test]
@@ -94,19 +86,28 @@ fn compile_with_valid_npz_weights() {
         let mut writer = npyz::npz::NpzWriter::create(&npz_path).unwrap();
         let options = zip::write::FileOptions::default();
 
-        fn write_array(writer: &mut npyz::npz::NpzWriter<std::io::BufWriter<std::fs::File>>, name: &str, shape: &[u64], data: &[f32], options: zip::write::FileOptions) {
-            let mut arr = writer.array::<f32>(name, options).unwrap()
+        fn write_array(
+            writer: &mut npyz::npz::NpzWriter<std::io::BufWriter<std::fs::File>>,
+            name: &str,
+            shape: &[u64],
+            data: &[f32],
+            options: zip::write::FileOptions,
+        ) {
+            let mut arr = writer
+                .array::<f32>(name, options)
+                .unwrap()
                 .default_dtype()
                 .shape(shape)
-                .begin_nd().unwrap();
+                .begin_nd()
+                .unwrap();
             arr.extend(data.iter().copied()).unwrap();
             arr.finish().unwrap();
         }
 
-        write_array(&mut writer, "fc1.weight", &[4, 3], &vec![0.1_f32; 12], options);
-        write_array(&mut writer, "fc1.bias", &[3], &vec![0.0_f32; 3], options);
-        write_array(&mut writer, "fc2.weight", &[3, 2], &vec![0.2_f32; 6], options);
-        write_array(&mut writer, "fc2.bias", &[2], &vec![0.0_f32; 2], options);
+        write_array(&mut writer, "fc1.weight", &[4, 3], &[0.1_f32; 12], options);
+        write_array(&mut writer, "fc1.bias", &[3], &[0.0_f32; 3], options);
+        write_array(&mut writer, "fc2.weight", &[3, 2], &[0.2_f32; 6], options);
+        write_array(&mut writer, "fc2.bias", &[2], &[0.0_f32; 2], options);
     }
 
     let model_path = tmp.path().join("model.nnl");

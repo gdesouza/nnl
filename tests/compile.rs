@@ -27,11 +27,11 @@ fn nnc() -> assert_cmd::Command {
 fn create_mini_cnn_weights(dir: &Path) {
     std::fs::create_dir_all(dir).unwrap();
     // conv.weight: [filters=1, in_ch=1, kh=3, kw=3] = 9 elements, all 1.0
-    write_npy_f32(&dir.join("conv.weight.npy"), &[1, 1, 3, 3], &vec![1.0; 9]);
+    write_npy_f32(&dir.join("conv.weight.npy"), &[1, 1, 3, 3], &[1.0; 9]);
     // conv.bias: [1] = 0.0
     write_npy_f32(&dir.join("conv.bias.npy"), &[1], &[0.0]);
     // fc.weight: [4, 1] = all 1.0
-    write_npy_f32(&dir.join("fc.weight.npy"), &[4, 1], &vec![1.0; 4]);
+    write_npy_f32(&dir.join("fc.weight.npy"), &[4, 1], &[1.0; 4]);
     // fc.bias: [1] = 0.0
     write_npy_f32(&dir.join("fc.bias.npy"), &[1], &[0.0]);
 }
@@ -44,23 +44,11 @@ fn compile_and_run_mlp_exe() {
 
     // MLP: input [4] -> fc1(units: 3, relu) -> fc2(units: 2, softmax)
     // fc1.weight: all 0.5, shape [4, 3]
-    write_npy_f32(
-        &weights_dir.join("fc1.weight.npy"),
-        &[4, 3],
-        &vec![0.5_f32; 12],
-    );
+    write_npy_f32(&weights_dir.join("fc1.weight.npy"), &[4, 3], &[0.5_f32; 12]);
     // fc1.bias: [0.1, 0.2, 0.3]
-    write_npy_f32(
-        &weights_dir.join("fc1.bias.npy"),
-        &[3],
-        &[0.1, 0.2, 0.3],
-    );
+    write_npy_f32(&weights_dir.join("fc1.bias.npy"), &[3], &[0.1, 0.2, 0.3]);
     // fc2.weight: all 0.25, shape [3, 2]
-    write_npy_f32(
-        &weights_dir.join("fc2.weight.npy"),
-        &[3, 2],
-        &vec![0.25_f32; 6],
-    );
+    write_npy_f32(&weights_dir.join("fc2.weight.npy"), &[3, 2], &[0.25_f32; 6]);
     // fc2.bias: [0.0, 0.0]
     write_npy_f32(&weights_dir.join("fc2.bias.npy"), &[2], &[0.0, 0.0]);
 
@@ -114,8 +102,16 @@ model test_mlp {{
         })
         .expect("failed to run compiled binary");
 
-    assert!(output.status.success(), "inference binary exited with error: {:?}", String::from_utf8_lossy(&output.stderr));
-    assert_eq!(output.stdout.len(), 2 * 4, "expected 2 float32 values (8 bytes)");
+    assert!(
+        output.status.success(),
+        "inference binary exited with error: {:?}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert_eq!(
+        output.stdout.len(),
+        2 * 4,
+        "expected 2 float32 values (8 bytes)"
+    );
 
     // Parse output
     let out_f32: Vec<f32> = output
@@ -152,8 +148,8 @@ fn compile_emit_header() {
     let weights_dir = tmp.path().join("weights");
     std::fs::create_dir_all(&weights_dir).unwrap();
 
-    write_npy_f32(&weights_dir.join("fc.weight.npy"), &[2, 3], &vec![1.0; 6]);
-    write_npy_f32(&weights_dir.join("fc.bias.npy"), &[3], &vec![0.0; 3]);
+    write_npy_f32(&weights_dir.join("fc.weight.npy"), &[2, 3], &[1.0; 6]);
+    write_npy_f32(&weights_dir.join("fc.bias.npy"), &[3], &[0.0; 3]);
 
     let model_path = tmp.path().join("model.nnl");
     let model_src = format!(
@@ -187,8 +183,8 @@ fn compile_emit_obj() {
     let weights_dir = tmp.path().join("weights");
     std::fs::create_dir_all(&weights_dir).unwrap();
 
-    write_npy_f32(&weights_dir.join("fc.weight.npy"), &[2, 3], &vec![1.0; 6]);
-    write_npy_f32(&weights_dir.join("fc.bias.npy"), &[3], &vec![0.0; 3]);
+    write_npy_f32(&weights_dir.join("fc.weight.npy"), &[2, 3], &[1.0; 6]);
+    write_npy_f32(&weights_dir.join("fc.bias.npy"), &[3], &[0.0; 3]);
 
     let model_path = tmp.path().join("model.nnl");
     let model_src = format!(
@@ -236,7 +232,14 @@ model mini_cnn {{
 
     let exe_path = tmp.path().join("mini_cnn");
     nnc()
-        .args(["compile", model_path.to_str().unwrap(), "--emit", "exe", "-o", exe_path.to_str().unwrap()])
+        .args([
+            "compile",
+            model_path.to_str().unwrap(),
+            "--emit",
+            "exe",
+            "-o",
+            exe_path.to_str().unwrap(),
+        ])
         .assert()
         .success();
 
@@ -245,10 +248,7 @@ model mini_cnn {{
     // Output shape [2,2,1] = 4 values, all 9.0
     // Flatten: [4] = [9, 9, 9, 9]
     // Dense(1): weight all 1.0, bias 0 => 9*4 = 36.0
-    let input_bytes: Vec<u8> = vec![1.0_f32; 16]
-        .iter()
-        .flat_map(|v| v.to_ne_bytes())
-        .collect();
+    let input_bytes: Vec<u8> = [1.0_f32; 16].iter().flat_map(|v| v.to_ne_bytes()).collect();
 
     let output = Command::new(&exe_path)
         .stdin(std::process::Stdio::piped())
@@ -262,14 +262,15 @@ model mini_cnn {{
         })
         .expect("failed to run cnn binary");
 
-    assert!(output.status.success(), "cnn binary failed: {:?}", String::from_utf8_lossy(&output.stderr));
+    assert!(
+        output.status.success(),
+        "cnn binary failed: {:?}",
+        String::from_utf8_lossy(&output.stderr)
+    );
     assert_eq!(output.stdout.len(), 4, "expected 1 float32 (4 bytes)");
 
     let result = f32::from_ne_bytes(output.stdout[..4].try_into().unwrap());
-    assert!(
-        (result - 36.0).abs() < 1e-3,
-        "expected ~36.0, got {result}"
-    );
+    assert!((result - 36.0).abs() < 1e-3, "expected ~36.0, got {result}");
 }
 
 #[test]
@@ -302,9 +303,12 @@ fn nnc_test_pass() {
         .args([
             "test",
             model_path.to_str().unwrap(),
-            "--input", input_path.to_str().unwrap(),
-            "--expected", expected_path.to_str().unwrap(),
-            "--tolerance", "1e-5",
+            "--input",
+            input_path.to_str().unwrap(),
+            "--expected",
+            expected_path.to_str().unwrap(),
+            "--tolerance",
+            "1e-5",
         ])
         .assert()
         .success()
@@ -338,8 +342,10 @@ fn nnc_test_fail() {
         .args([
             "test",
             model_path.to_str().unwrap(),
-            "--input", input_path.to_str().unwrap(),
-            "--expected", expected_path.to_str().unwrap(),
+            "--input",
+            input_path.to_str().unwrap(),
+            "--expected",
+            expected_path.to_str().unwrap(),
         ])
         .assert()
         .failure()
@@ -358,19 +364,43 @@ fn compile_residual_block() {
     let w: usize = 4;
 
     // Two Conv2D layers with same padding, both [2,2,3,3]
-    write_npy_f32(&weights_dir.join("conv1.weight.npy"), &[ch, ch, 3, 3], &vec![0.0; ch*ch*9]);
+    write_npy_f32(
+        &weights_dir.join("conv1.weight.npy"),
+        &[ch, ch, 3, 3],
+        &vec![0.0; ch * ch * 9],
+    );
     write_npy_f32(&weights_dir.join("conv1.bias.npy"), &[ch], &vec![0.0; ch]);
-    write_npy_f32(&weights_dir.join("conv2.weight.npy"), &[ch, ch, 3, 3], &vec![0.0; ch*ch*9]);
+    write_npy_f32(
+        &weights_dir.join("conv2.weight.npy"),
+        &[ch, ch, 3, 3],
+        &vec![0.0; ch * ch * 9],
+    );
     write_npy_f32(&weights_dir.join("conv2.bias.npy"), &[ch], &vec![0.0; ch]);
     // BatchNorm params
     write_npy_f32(&weights_dir.join("bn1.gamma.npy"), &[ch], &vec![1.0; ch]);
     write_npy_f32(&weights_dir.join("bn1.beta.npy"), &[ch], &vec![0.0; ch]);
-    write_npy_f32(&weights_dir.join("bn1.running_mean.npy"), &[ch], &vec![0.0; ch]);
-    write_npy_f32(&weights_dir.join("bn1.running_var.npy"), &[ch], &vec![1.0; ch]);
+    write_npy_f32(
+        &weights_dir.join("bn1.running_mean.npy"),
+        &[ch],
+        &vec![0.0; ch],
+    );
+    write_npy_f32(
+        &weights_dir.join("bn1.running_var.npy"),
+        &[ch],
+        &vec![1.0; ch],
+    );
     write_npy_f32(&weights_dir.join("bn2.gamma.npy"), &[ch], &vec![1.0; ch]);
     write_npy_f32(&weights_dir.join("bn2.beta.npy"), &[ch], &vec![0.0; ch]);
-    write_npy_f32(&weights_dir.join("bn2.running_mean.npy"), &[ch], &vec![0.0; ch]);
-    write_npy_f32(&weights_dir.join("bn2.running_var.npy"), &[ch], &vec![1.0; ch]);
+    write_npy_f32(
+        &weights_dir.join("bn2.running_mean.npy"),
+        &[ch],
+        &vec![0.0; ch],
+    );
+    write_npy_f32(
+        &weights_dir.join("bn2.running_var.npy"),
+        &[ch],
+        &vec![1.0; ch],
+    );
 
     let model_path = tmp.path().join("resblock.nnl");
     let model_src = format!(
@@ -402,7 +432,14 @@ model resblock {{
 
     let exe_path = tmp.path().join("resblock");
     nnc()
-        .args(["compile", model_path.to_str().unwrap(), "--emit", "exe", "-o", exe_path.to_str().unwrap()])
+        .args([
+            "compile",
+            model_path.to_str().unwrap(),
+            "--emit",
+            "exe",
+            "-o",
+            exe_path.to_str().unwrap(),
+        ])
         .assert()
         .success();
 
@@ -430,18 +467,20 @@ model resblock {{
         })
         .expect("failed to run resblock binary");
 
-    assert!(output.status.success(), "resblock failed: {:?}", String::from_utf8_lossy(&output.stderr));
+    assert!(
+        output.status.success(),
+        "resblock failed: {:?}",
+        String::from_utf8_lossy(&output.stderr)
+    );
 
-    let out_floats: Vec<f32> = output.stdout
+    let out_floats: Vec<f32> = output
+        .stdout
         .chunks_exact(4)
         .map(|c| f32::from_ne_bytes(c.try_into().unwrap()))
         .collect();
 
     assert_eq!(out_floats.len(), input_size);
     for (i, &v) in out_floats.iter().enumerate() {
-        assert!(
-            (v - 1.0).abs() < 1e-4,
-            "output[{i}] = {v}, expected ~1.0"
-        );
+        assert!((v - 1.0).abs() < 1e-4, "output[{i}] = {v}, expected ~1.0");
     }
 }

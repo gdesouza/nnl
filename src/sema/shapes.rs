@@ -11,10 +11,7 @@ pub struct ShapeInfo {
 }
 
 /// Propagate shapes through the graph in topological order.
-pub fn infer_shapes(
-    model: &Model,
-    topo_order: &[String],
-) -> Result<ShapeInfo, ShapeError> {
+pub fn infer_shapes(model: &Model, topo_order: &[String]) -> Result<ShapeInfo, ShapeError> {
     let mut shapes: IndexMap<String, Vec<usize>> = IndexMap::new();
 
     for layer_id in topo_order {
@@ -77,8 +74,8 @@ fn compute_output_shape(
                     (oh, ow)
                 }
                 Padding::Same => {
-                    let oh = (h + stride - 1) / stride;
-                    let ow = (w + stride - 1) / stride;
+                    let oh = h.div_ceil(*stride);
+                    let ow = w.div_ceil(*stride);
                     (oh, ow)
                 }
             };
@@ -163,7 +160,10 @@ fn compute_output_shape(
                         code: "E005",
                         message: format!(
                             "incompatible shapes for Concat `{}`: input 0 has {} dims, input {} has {} dims",
-                            layer.id, ndim, i, shape.len()
+                            layer.id,
+                            ndim,
+                            i,
+                            shape.len()
                         ),
                     });
                 }
@@ -173,9 +173,7 @@ fn compute_output_shape(
                             code: "E005",
                             message: format!(
                                 "incompatible shapes for Concat `{}` on axis {}: input shapes {:?}",
-                                layer.id,
-                                axis_normalized,
-                                inputs
+                                layer.id, axis_normalized, inputs
                             ),
                         });
                     }

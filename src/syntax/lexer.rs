@@ -155,9 +155,7 @@ pub fn tokenize(source: &str) -> Result<Vec<Spanned>, LexError> {
                 });
             }
             Err(()) => {
-                return Err(LexError {
-                    span: lexer.span(),
-                });
+                return Err(LexError { span: lexer.span() });
             }
         }
     }

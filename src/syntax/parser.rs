@@ -310,7 +310,7 @@ impl<'a> Parser<'a> {
                 return Err(ParseError {
                     message: format!("expected layer type, got `{other}`"),
                     span: self.current_span(),
-                })
+                });
             }
             None => return Err(self.eof_error("expected layer type")),
         };

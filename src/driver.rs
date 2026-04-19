@@ -105,7 +105,12 @@ fn run_inspect(source: &Path) -> i32 {
     0
 }
 
-fn run_compile(source: &Path, emit_fmt: &EmitFormat, output: Option<&Path>, target_triple: Option<&str>) -> i32 {
+fn run_compile(
+    source: &Path,
+    emit_fmt: &EmitFormat,
+    output: Option<&Path>,
+    target_triple: Option<&str>,
+) -> i32 {
     let fr = match run_frontend(source) {
         Ok(r) => r,
         Err(code) => return code,
@@ -134,12 +139,22 @@ fn run_compile(source: &Path, emit_fmt: &EmitFormat, output: Option<&Path>, targ
     let output_path = output.map(|p| p.to_path_buf()).unwrap_or(default_output);
 
     // Invoke toolchain
-    let model_name = fr.model.name.replace(|c: char| !c.is_ascii_alphanumeric(), "_");
+    let model_name = fr
+        .model
+        .name
+        .replace(|c: char| !c.is_ascii_alphanumeric(), "_");
     let opts = toolchain::CompileOptions {
         target: fr.model.config.target,
         target_triple,
     };
-    if let Err(e) = toolchain::compile(&c_source, &c_header, emit_fmt, &output_path, &model_name, &opts) {
+    if let Err(e) = toolchain::compile(
+        &c_source,
+        &c_header,
+        emit_fmt,
+        &output_path,
+        &model_name,
+        &opts,
+    ) {
         eprintln!("nnc: {}", e.message);
         return 1;
     }
@@ -254,9 +269,7 @@ fn run_test(source: &Path, input_path: &Path, expected_path: &Path, tolerance: f
         }
         if diff > tolerance {
             if fail_count < 10 {
-                eprintln!(
-                    "  mismatch at [{i}]: got {got:.8}, expected {exp:.8}, diff {diff:.2e}"
-                );
+                eprintln!("  mismatch at [{i}]: got {got:.8}, expected {exp:.8}, diff {diff:.2e}");
             }
             fail_count += 1;
         }
@@ -282,7 +295,8 @@ fn run_test(source: &Path, input_path: &Path, expected_path: &Path, tolerance: f
 }
 
 fn read_npy_f32(path: &Path) -> Result<Vec<f32>, String> {
-    let bytes = std::fs::read(path).map_err(|e| format!("cannot read `{}`: {e}", path.display()))?;
+    let bytes =
+        std::fs::read(path).map_err(|e| format!("cannot read `{}`: {e}", path.display()))?;
     let npy = npyz::NpyFile::new(&bytes[..])
         .map_err(|e| format!("cannot parse `{}`: {e}", path.display()))?;
     npy.into_vec::<f32>()
@@ -313,10 +327,7 @@ fn print_inspect(
         .map(|v| format!("version {v}"))
         .unwrap_or_default();
     if !version_str.is_empty() {
-        println!(
-            "Model: {} ({version_str})",
-            model.name
-        );
+        println!("Model: {} ({version_str})", model.name);
     } else {
         println!("Model: {}", model.name);
     }
@@ -340,24 +351,20 @@ fn print_inspect(
             .get(&layer.id)
             .map(|s| format_shape(s))
             .unwrap_or_else(|| "?".to_string());
-        let params = mem_info
-            .layer_params
-            .get(&layer.id)
-            .copied()
-            .unwrap_or(0);
+        let params = mem_info.layer_params.get(&layer.id).copied().unwrap_or(0);
 
         println!(
             "{:<16}{:<12}{:<18}{:>8}",
-            layer.id, type_name, shape_str, format_number(params)
+            layer.id,
+            type_name,
+            shape_str,
+            format_number(params)
         );
     }
 
     println!("{}", "─".repeat(54));
     println!("Total params:    {}", format_number(mem_info.total_params));
-    println!(
-        "Weight memory:   {}",
-        format_bytes(mem_info.weight_bytes)
-    );
+    println!("Weight memory:   {}", format_bytes(mem_info.weight_bytes));
     println!(
         "Workspace:       {} (static buffer)",
         format_bytes(mem_info.workspace_bytes)

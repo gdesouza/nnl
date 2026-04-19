@@ -2,7 +2,10 @@ use clap::{Parser, Subcommand};
 use std::path::PathBuf;
 
 #[derive(Parser)]
-#[command(name = "nnc", about = "NNL compiler — compile neural network definitions to native binaries")]
+#[command(
+    name = "nnc",
+    about = "NNL compiler — compile neural network definitions to native binaries"
+)]
 pub struct Cli {
     #[command(subcommand)]
     pub command: Command,

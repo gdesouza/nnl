@@ -16,10 +16,7 @@ pub struct MemoryInfo {
 }
 
 /// Compute parameter counts and memory estimates.
-pub fn estimate_memory(
-    model: &Model,
-    shapes: &IndexMap<String, Vec<usize>>,
-) -> MemoryInfo {
+pub fn estimate_memory(model: &Model, shapes: &IndexMap<String, Vec<usize>>) -> MemoryInfo {
     let elem_size = model.config.precision.byte_size();
     let mut layer_params = IndexMap::new();
     let mut total_params: usize = 0;
@@ -66,28 +63,24 @@ fn param_count(kind: &LayerKind, input_shape: Option<&[usize]>) -> usize {
             filters, kernel, ..
         } => {
             // weight: filters × in_channels × kH × kW, bias: filters
-            let in_channels = input_shape
-                .and_then(|s| s.last().copied())
-                .unwrap_or(0);
+            let in_channels = input_shape.and_then(|s| s.last().copied()).unwrap_or(0);
             let kh = kernel.height();
             let kw = kernel.width();
             filters * in_channels * kh * kw + filters
         }
         LayerKind::BatchNorm { .. } => {
             // gamma, beta, running_mean, running_var (4 × channels)
-            let channels = input_shape
-                .and_then(|s| s.last().copied())
-                .unwrap_or(0);
+            let channels = input_shape.and_then(|s| s.last().copied()).unwrap_or(0);
             channels * 4
         }
         _ => 0,
     }
 }
 
-fn get_input_shape<'a>(
+fn get_input_shape(
     layer_id: &str,
     model: &Model,
-    shapes: &'a IndexMap<String, Vec<usize>>,
+    shapes: &IndexMap<String, Vec<usize>>,
 ) -> Option<Vec<usize>> {
     // Find first incoming edge
     let source_id = model
