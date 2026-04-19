@@ -8,7 +8,7 @@ fn nnc() -> Command {
 #[test]
 fn inspect_mnist() {
     nnc()
-        .args(["inspect", "examples/mnist.nnl"])
+        .args(["inspect", "examples/mnist/mnist.nnl"])
         .assert()
         .success()
         .stdout(
@@ -25,7 +25,7 @@ fn inspect_mnist() {
 #[test]
 fn inspect_resnet_block() {
     nnc()
-        .args(["inspect", "examples/resnet_block.nnl"])
+        .args(["inspect", "examples/resnet_block/resnet_block.nnl"])
         .assert()
         .success()
         .stdout(

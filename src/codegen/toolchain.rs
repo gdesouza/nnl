@@ -2,6 +2,7 @@ use std::path::Path;
 use std::process::Command;
 
 use crate::cli::EmitFormat;
+use crate::ir::model::Target;
 
 #[derive(Debug)]
 pub struct ToolchainError {
@@ -14,6 +15,12 @@ impl std::fmt::Display for ToolchainError {
     }
 }
 
+/// Options for the toolchain invocation.
+pub struct CompileOptions<'a> {
+    pub target: Target,
+    pub target_triple: Option<&'a str>,
+}
+
 /// Compile generated C source (and header) into the requested artifact.
 pub fn compile(
     c_source: &str,
@@ -21,6 +28,7 @@ pub fn compile(
     emit: &EmitFormat,
     output: &Path,
     model_name: &str,
+    opts: &CompileOptions<'_>,
 ) -> Result<(), ToolchainError> {
     let tmp_dir = tempfile::tempdir().map_err(|e| ToolchainError {
         message: format!("failed to create temp directory: {e}"),
@@ -36,22 +44,48 @@ pub fn compile(
         message: format!("failed to write C header: {e}"),
     })?;
 
+    // Build base flags: -O2 + target-specific SIMD flags
+    let mut flags: Vec<&str> = vec!["-O2"];
+    let target_flag = target_cc_flag(opts.target);
+    if let Some(f) = target_flag {
+        flags.push(f);
+    }
+
+    // Determine compiler binary (cross-compilation support)
+    let cc_bin = if let Some(triple) = opts.target_triple {
+        format!("{triple}-gcc")
+    } else {
+        "cc".to_string()
+    };
+
+    let src_str = src_path.display().to_string();
+    let out_str = output.display().to_string();
+
     match emit {
         EmitFormat::Exe => {
-            cc(&["-O2", "-o", &output.display().to_string(), &src_path.display().to_string(), "-lm"])?;
+            let mut args = flags.clone();
+            args.extend_from_slice(&["-o", &out_str, &src_str, "-lm"]);
+            cc_cmd(&cc_bin, &args)?;
         }
         EmitFormat::Obj => {
-            cc(&["-O2", "-c", "-o", &output.display().to_string(), &src_path.display().to_string()])?;
+            let mut args = flags.clone();
+            args.extend_from_slice(&["-c", "-o", &out_str, &src_str]);
+            cc_cmd(&cc_bin, &args)?;
             copy_header_beside(&hdr_path, output)?;
         }
         EmitFormat::Lib => {
             let tmp_obj = tmp_dir.path().join(format!("{model_name}.o"));
-            cc(&["-O2", "-c", "-o", &tmp_obj.display().to_string(), &src_path.display().to_string()])?;
-            ar(&[&output.display().to_string(), &tmp_obj.display().to_string()])?;
+            let obj_str = tmp_obj.display().to_string();
+            let mut args = flags.clone();
+            args.extend_from_slice(&["-c", "-o", &obj_str, &src_str]);
+            cc_cmd(&cc_bin, &args)?;
+            ar(&[&out_str, &obj_str])?;
             copy_header_beside(&hdr_path, output)?;
         }
         EmitFormat::Shared => {
-            cc(&["-O2", "-shared", "-fPIC", "-o", &output.display().to_string(), &src_path.display().to_string(), "-lm"])?;
+            let mut args = flags.clone();
+            args.extend_from_slice(&["-shared", "-fPIC", "-o", &out_str, &src_str, "-lm"]);
+            cc_cmd(&cc_bin, &args)?;
             copy_header_beside(&hdr_path, output)?;
         }
         EmitFormat::Header => {
@@ -64,18 +98,28 @@ pub fn compile(
     Ok(())
 }
 
-fn cc(args: &[&str]) -> Result<(), ToolchainError> {
-    let output = Command::new("cc")
+/// Return the -m flag for the given target, or None for generic.
+fn target_cc_flag(target: Target) -> Option<&'static str> {
+    match target {
+        Target::Generic => None,
+        Target::Avx2 => Some("-mavx2"),
+        Target::Avx512 => Some("-mavx512f"),
+        Target::ArmNeon => Some("-mfpu=neon"),
+    }
+}
+
+fn cc_cmd(bin: &str, args: &[&str]) -> Result<(), ToolchainError> {
+    let output = Command::new(bin)
         .args(args)
         .output()
         .map_err(|e| ToolchainError {
-            message: format!("failed to invoke cc: {e}"),
+            message: format!("failed to invoke {bin}: {e}"),
         })?;
 
     if !output.status.success() {
         let stderr = String::from_utf8_lossy(&output.stderr);
         return Err(ToolchainError {
-            message: format!("cc failed (exit {}):\n{stderr}", output.status),
+            message: format!("{bin} failed (exit {}):\n{stderr}", output.status),
         });
     }
     Ok(())

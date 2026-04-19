@@ -23,8 +23,8 @@ pub fn run(cli: &Cli) -> i32 {
             source,
             emit,
             output,
-            ..
-        } => run_compile(source, emit, output.as_deref()),
+            target_triple,
+        } => run_compile(source, emit, output.as_deref(), target_triple.as_deref()),
         Command::Inspect { source } => run_inspect(source),
         Command::Test {
             source,
@@ -100,7 +100,7 @@ fn run_inspect(source: &Path) -> i32 {
     0
 }
 
-fn run_compile(source: &Path, emit_fmt: &EmitFormat, output: Option<&Path>) -> i32 {
+fn run_compile(source: &Path, emit_fmt: &EmitFormat, output: Option<&Path>, target_triple: Option<&str>) -> i32 {
     let fr = match run_frontend(source) {
         Ok(r) => r,
         Err(code) => return code,
@@ -130,7 +130,11 @@ fn run_compile(source: &Path, emit_fmt: &EmitFormat, output: Option<&Path>) -> i
 
     // Invoke toolchain
     let model_name = fr.model.name.replace(|c: char| !c.is_ascii_alphanumeric(), "_");
-    if let Err(e) = toolchain::compile(&c_source, &c_header, emit_fmt, &output_path, &model_name) {
+    let opts = toolchain::CompileOptions {
+        target: fr.model.config.target,
+        target_triple,
+    };
+    if let Err(e) = toolchain::compile(&c_source, &c_header, emit_fmt, &output_path, &model_name, &opts) {
         eprintln!("nnc: {}", e.message);
         return 1;
     }
@@ -150,7 +154,7 @@ fn run_test(source: &Path, input_path: &Path, expected_path: &Path, tolerance: f
     };
     let exe_path = tmp_dir.path().join("nnc_test_binary");
 
-    let compile_code = run_compile(source, &EmitFormat::Exe, Some(&exe_path));
+    let compile_code = run_compile(source, &EmitFormat::Exe, Some(&exe_path), None);
     if compile_code != 0 {
         return compile_code;
     }
