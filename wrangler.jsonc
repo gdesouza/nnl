@@ -6,7 +6,7 @@
     "enabled": true
   },
   "assets": {
-    "directory": "book"
+    "directory": "website"
   },
   "compatibility_flags": [
     "nodejs_compat"
