@@ -694,8 +694,8 @@ dependencies = [
 ]
 
 [[package]]
-name = "nnc"
-version = "0.1.0"
+name = "nnlang"
+version = "0.2.0"
 dependencies = [
  "assert_cmd",
  "clap",

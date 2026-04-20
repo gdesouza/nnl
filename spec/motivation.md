@@ -1,4 +1,4 @@
-# NNL: Motivation
+# NNL Language: Motivation
 
 ## The Problem
 
@@ -6,7 +6,7 @@ Deploying neural network models today typically requires shipping heavyweight ru
 
 ## Why NNL?
 
-NNL addresses this gap by providing a declarative language paired with the `nnc` compiler that produces **standalone, zero-dependency native binaries** with embedded weights. The key properties of the output — no heap allocation, no external runtime, deterministic memory usage — make it uniquely suited for environments where conventional ML deployment stacks cannot reach.
+NNL language addresses this gap by providing a declarative language paired with the `nnc` compiler that produces **standalone, zero-dependency native binaries** with embedded weights. The key properties of the output — no heap allocation, no external runtime, deterministic memory usage — make it uniquely suited for environments where conventional ML deployment stacks cannot reach.
 
 ## Target Use Cases
 

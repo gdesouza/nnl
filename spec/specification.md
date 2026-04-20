@@ -1,4 +1,4 @@
-# NNL Specification v0.2
+# NNLang Specification v0.2
 
 NNL (Neural Network Language) is a declarative language for defining neural network architectures. It is designed to be consumed by the `nnc` compiler that generates native machine code with embedded weights for zero-dependency inference.
 

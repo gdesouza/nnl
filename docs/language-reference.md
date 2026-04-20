@@ -1,4 +1,4 @@
-# NNL Language Reference (v0.2)
+# NNLang Language Reference (v0.2)
 
 A practical reference for writing `.nnl` model files consumed by the `nnc` compiler.
 

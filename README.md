@@ -1,9 +1,9 @@
-# NNL — Neural Network Language
+# NNLang — Neural Network Language
 
 [![CI](https://github.com/gdesouza/nnl/actions/workflows/ci.yml/badge.svg)](https://github.com/gdesouza/nnl/actions/workflows/ci.yml)
 [![Release](https://github.com/gdesouza/nnl/actions/workflows/release.yml/badge.svg)](https://github.com/gdesouza/nnl/actions/workflows/release.yml)
 [![Security](https://github.com/gdesouza/nnl/actions/workflows/security.yml/badge.svg)](https://github.com/gdesouza/nnl/actions/workflows/security.yml)
-[![Latest Release](https://img.shields.io/github/v/release/gdesouza/nnl)](https://github.com/gdesouza/nnl/releases/tag/v0.1.5)
+[![Latest Release](https://img.shields.io/github/v/release/gdesouza/nnl)](https://github.com/gdesouza/nnl/releases/tag/v0.2.0)
 
 NNL is a declarative language for defining neural network architectures, paired with the `nnc` compiler that produces **standalone, zero-dependency native binaries** with embedded weights.
 
@@ -18,7 +18,7 @@ NNL is a declarative language for defining neural network architectures, paired 
 
 ```bash
 # Install
-cargo install --path .
+cargo install nnlang
 
 # Write a model (or import from ONNX)
 nnc import model.onnx -o model.nnl --weights-dir ./weights
@@ -82,13 +82,13 @@ model mnist_classifier {
 
 ## Documentation
 
-- [Language Reference](docs/language-reference.md) — NNL v0.2 syntax, config keys, layer types, connections
+- [Language Reference](docs/language-reference.md) — NNLang v0.2 syntax, config keys, layer types, connections
 - [CLI Reference](docs/cli.md) — all commands, flags, and examples
 - [Weight Files](docs/weights.md) — formats, naming convention, expected shapes
 - [ONNX Import](docs/onnx-import.md) — supported ops, round-trip workflow
 - [Code Generation](docs/codegen.md) — C backend, output formats, integration, cross-compilation
 - [Examples](docs/examples.md) — walkthroughs of included models
-- [Specification](spec/specification.md) — formal NNL v0.2 grammar and semantics
+- [Specification](spec/specification.md) — formal NNLang v0.2 grammar and semantics
 - [Design Decisions](DESIGN.md) — ADRs and MVP constraints
 
 ## License

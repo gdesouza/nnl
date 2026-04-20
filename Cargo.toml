@@ -1,10 +1,11 @@
 [package]
-name = "nnc"
-version = "0.1.0"
+name = "nnlang"
+version = "0.2.0"
 edition = "2024"
-description = "Compiler for the NNL (Neural Network Language)"
+description = "Compiler for the NNLang (Neural Network Language)"
 license = "Apache-2.0"
 repository = "https://github.com/gdesouza/nnl"
+homepage = "https://nnl-lang.org"
 readme = "README.md"
 keywords = ["neural-network", "compiler", "inference", "embedded", "onnx"]
 categories = ["compilers", "science", "embedded"]
@@ -26,3 +27,7 @@ assert_cmd = "2"
 predicates = "3"
 tempfile = "3"
 zip = "0.6"
+
+[[bin]]
+name = "nnc"
+path = "src/main.rs"

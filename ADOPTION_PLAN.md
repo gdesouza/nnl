@@ -1,8 +1,8 @@
-# NNL Adoption & Engagement Plan
+# NNLang Adoption & Engagement Plan
 
 ## Executive Summary
 
-NNL (Neural Network Language) is a declarative language for defining neural network architectures that compiles to standalone, zero-dependency native binaries. This plan outlines strategies to drive adoption among programmers, focusing on embedded systems developers, ML engineers, and systems programmers.
+NNLang (Neural Network Language) is a declarative language for defining neural network architectures that compiles to standalone, zero-dependency native binaries. This plan outlines strategies to drive adoption among programmers, focusing on embedded systems developers, ML engineers, and systems programmers.
 
 ---
 
