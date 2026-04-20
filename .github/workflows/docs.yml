@@ -33,7 +33,7 @@ jobs:
       - name: Prepare docs output
         run: |
           mkdir -p _site/docs
-          cp -r book/* _site/docs/
+          cp -r docs/book/* _site/docs/
           ls -la _site/docs/
 
       - name: Upload artifact
