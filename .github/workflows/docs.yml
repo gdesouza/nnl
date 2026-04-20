@@ -3,6 +3,8 @@ name: Deploy Docs
 on:
   push:
     branches: [main]
+    paths:
+      - "docs/**"
   workflow_dispatch:
 
 permissions:
@@ -11,7 +13,7 @@ permissions:
   id-token: write
 
 concurrency:
-  group: "pages"
+  group: "docs"
   cancel-in-progress: false
 
 jobs:
@@ -30,10 +32,16 @@ jobs:
           cd docs
           mdbook build
 
+      - name: Prepare docs output
+        run: |
+          mkdir -p _site/docs
+          cp -r book/* _site/docs/
+          ls -la _site/docs/
+
       - name: Upload artifact
         uses: actions/upload-pages-artifact@v3
         with:
-          path: book
+          path: _site
 
   deploy:
     needs: build
