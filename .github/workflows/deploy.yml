@@ -1,0 +1,36 @@
+name: Deploy Website
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  build-and-deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Setup mdBook
+        run: |
+          cargo install --locked mdbook
+
+      - name: Build mdBook
+        run: |
+          cd docs
+          mdbook build
+
+      - name: Copy website to root
+        run: |
+          cp -r website/. _site/
+          cp -r docs/book/. _site/docs/
+          cp website/favicon.svg _site/ 2>/dev/null || true
+
+      - name: Deploy to Cloudflare Pages
+        uses: cloudflare/wrangler-action@v3
+        with:
+          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          projectName: nnl
+          directory: _site
+          gitHubToken: ${{ secrets.GITHUB_TOKEN }}

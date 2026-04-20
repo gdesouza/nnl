@@ -1,0 +1,131 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>NNLang — Neural Networks without the bloat</title>
+  <meta name="description" content="A declarative language that compiles ML models to standalone, zero-dependency native binaries.">
+  <link rel="stylesheet" href="/styles.css">
+  <link rel="icon" type="image/svg+xml" href="/favicon.svg">
+</head>
+<body>
+  <nav>
+    <div class="container nav-content">
+      <a href="/" class="logo">NNLang</a>
+      <div class="nav-links">
+        <a href="#install">Install</a>
+        <a href="#quickstart">Quick Start</a>
+        <a href="#features">Features</a>
+        <a href="#examples">Examples</a>
+        <a href="/docs/">Docs</a>
+        <a href="https://github.com/gdesouza/nnl" target="_blank" rel="noopener">GitHub</a>
+      </div>
+    </div>
+  </nav>
+
+  <main>
+    <section class="hero">
+      <div class="container">
+        <h1>Neural Networks without the bloat</h1>
+        <p class="tagline">A declarative language that compiles ML models to standalone, zero-dependency native binaries.</p>
+        <div class="hero-buttons">
+          <a href="#quickstart" class="btn btn-primary">Get Started</a>
+          <a href="#install" class="btn btn-secondary">Install</a>
+        </div>
+      </div>
+    </section>
+
+    <section id="install" class="section">
+      <div class="container">
+        <h2>Installation</h2>
+        <div class="code-block">
+          <code>cargo install nnlang</code>
+        </div>
+        <p class="note">Requires <a href="https://rustup.rs">Rust toolchain</a> and a C compiler (gcc, clang, or cc).</p>
+        <p>Or download pre-built binaries from <a href="https://github.com/gdesouza/nnl/releases">GitHub Releases</a>.</p>
+      </div>
+    </section>
+
+    <section id="quickstart" class="section">
+      <div class="container">
+        <h2>Quick Start</h2>
+        <ol class="steps">
+          <li>
+            <strong>Write a model</strong>
+            <div class="code-block">
+<code>version 0.2;
+
+model my_model {
+    config {
+        weights: "./weights";
+        io: "stdio";
+    }
+
+    layer input = Input(shape: [4]);
+    layer fc1   = Dense(units: 3, activation: "relu");
+    layer fc2   = Dense(units: 2);
+}</code>
+            </div>
+          </li>
+          <li>
+            <strong>Compile</strong>
+            <div class="code-block">
+              <code>nnc compile model.nnl --emit exe -o model</code>
+            </div>
+          </li>
+          <li>
+            <strong>Run</strong>
+            <div class="code-block">
+              <code>cat input.bin | ./model > output.bin</code>
+            </div>
+          </li>
+        </ol>
+        <p class="note">Weight files go in <code>weights/</code> directory. See <a href="/docs">docs</a> for details.</p>
+      </div>
+    </section>
+
+    <section id="features" class="section">
+      <div class="container">
+        <h2>Key Features</h2>
+        <div class="features-grid">
+          <div class="feature">
+            <h3>No Runtime Dependencies</h3>
+            <p>Compiled models are self-contained static binaries.</p>
+          </div>
+          <div class="feature">
+            <h3>No Heap Allocation</h3>
+            <p>All memory is statically allocated at compile time.</p>
+          </div>
+          <div class="feature">
+            <h3>Human-Readable Source</h3>
+            <p>Model architectures are defined in plain-text <code>.nnl</code> files.</p>
+          </div>
+          <div class="feature">
+            <h3>Systems-First</h3>
+            <p>Targets bare-metal-capable output.</p>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section id="examples" class="section">
+      <div class="container">
+        <h2>Examples</h2>
+        <p>Complete models with pre-generated weights in the <a href="https://github.com/gdesouza/nnl/tree/main/examples">examples/</a> folder.</p>
+        <ul class="example-list">
+          <li><strong>Simple MLP</strong> — Minimal feedforward network</li>
+          <li><strong>MNIST CNN</strong> — Convolutional neural network for digit classification</li>
+          <li><strong>ResNet Block</strong> — Residual block with skip connections</li>
+          <li><strong>ONNX Import</strong> — Convert ONNX models to NNLang</li>
+        </ul>
+      </div>
+    </section>
+  </main>
+
+  <footer>
+    <div class="container">
+      <p>NNLang — <a href="https://github.com/gdesouza/nnl">GitHub</a> — <a href="/docs">Documentation</a></p>
+    </div>
+  </footer>
+</body>
+</html>
