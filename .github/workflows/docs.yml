@@ -33,7 +33,7 @@ jobs:
       - name: Upload artifact
         uses: actions/upload-pages-artifact@v3
         with:
-          target_dir: docs/book
+          path: book
 
   deploy:
     needs: build
