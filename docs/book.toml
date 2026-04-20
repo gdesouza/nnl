@@ -1,0 +1,12 @@
+[book]
+title = "NNLang Documentation"
+description = "Compiler for the Neural Network Language"
+authors = ["Gustavo"]
+language = "en"
+
+[output.html]
+git-repository-url = "https://github.com/gdesouza/nnl"
+edit-url-template = "https://github.com/gdesouza/nnl/edit/main/docs/{path}"
+
+[build]
+build-dir = "../book"
