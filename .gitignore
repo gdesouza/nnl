@@ -9,3 +9,10 @@ examples/import_test/model_bin
 examples/import_test/weights/
 examples/import_test/input.npy
 examples/import_test/expected.npy
+
+# wrangler files
+.wrangler
+.dev.vars*
+!.dev.vars.example
+.env*
+!.env.example
