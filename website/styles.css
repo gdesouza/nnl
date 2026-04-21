@@ -201,6 +201,17 @@ nav {
   color: var(--text-secondary);
 }
 
+/* Disclaimer banner */
+.disclaimer {
+  background: #fff3cd;
+  border-bottom: 1px solid #ffc107;
+  padding: 0.75rem 0;
+  font-size: 0.9rem;
+  color: #664d03;
+  text-align: center;
+  line-height: 1.5;
+}
+
 /* Stats bar */
 .stats-bar {
   padding: 2.5rem 0;
