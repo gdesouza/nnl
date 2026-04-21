@@ -43,7 +43,7 @@ nav {
   border-bottom: 1px solid var(--border);
   padding: 1rem 0;
   position: sticky;
-  top: 0;
+  top: 2.85rem;
   z-index: 100;
 }
 
@@ -210,6 +210,15 @@ nav {
   color: #664d03;
   text-align: center;
   line-height: 1.5;
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  z-index: 101;
+}
+
+body {
+  padding-top: 2.85rem;
 }
 
 /* Stats bar */
