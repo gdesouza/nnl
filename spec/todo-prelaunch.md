@@ -159,20 +159,62 @@ Currently, a missing weights directory produces a generic error. Enhance the err
 - Show the directory that was searched
 - Suggest the `nnc inspect` command to see expected shapes
 
-### 2.4 Add a scaffold/init command
+### 2.4 Add `nnc new` — project scaffolding command
 
 ```
-nnc init my_model --input-shape [28,28,1] --output-units 10
+nnc new myproject --project rust
 ```
 
-Generates:
-- `my_model.nnl` with a basic sequential model
-- `weights/` directory with random `.npy` weight files of the correct shapes
-- `test_input.npy` with random input data
+Generates a complete starter project that integrates an NNL-compiled model in the target language. Supported languages: `rust`, `go`, `cpp`, `python`.
 
-This bridges the gap between "write .nnl file" and "successfully compile". Even a minimal version (just generating the `.nnl` file) significantly improves onboarding.
+**What it generates:**
+- A new directory named after the project
+- A dynamically generated sample `model.nnl` (e.g., a small MLP)
+- Language-specific boilerplate that links to / loads the compiled model artifact
+- A README with build instructions specific to that language
+- A Makefile or build script that calls `nnc compile` on the sample model and builds the host project
 
-**Alternative (lower effort):** Add a `nnc check model.nnl` command that runs the frontend pipeline without requiring weights, so users can validate their `.nnl` syntax and shapes before creating weight files. (Note: `nnc inspect` already does this — document it more prominently as the "validate your model" step.)
+**Templates per language:**
+- **Rust:** Cargo project with `build.rs` that invokes `nnc compile --emit lib`, links the `.a`, calls the C ABI via `extern "C"` in `main.rs`
+- **Go:** Go module with cgo bindings to the compiled `.a` + `.h`, `main.go` that calls `infer()`
+- **C++:** CMake project that compiles the model to `.a`, links it, calls the C ABI from `main.cpp`
+- **Python:** Python project with `ctypes` wrapper around the compiled `.so`, `main.py` that loads and calls `infer()`
+
+**Depends on:** `io: "none"` support (§2.5), integration examples (§2.6).
+
+### 2.5 Add `io: "none"` config option (library-only output)
+
+Currently `io: "stdio"` generates a `main()` wrapper that reads stdin and writes stdout. Add `io: "none"` which skips `main()` generation entirely, producing a pure library artifact.
+
+**Behavior:**
+- `io: "none"` + `--emit exe` → compile error ("cannot emit executable without io mode")
+- `io: "none"` + `--emit lib|shared|obj` → works, emits only the infer function + header
+- Evaluate whether `io: "none"` should be the default (breaking change) or keep `"stdio"` as default
+
+**Files:** `src/ir/model.rs` (add `None` variant to IO enum), `src/ir/lower.rs` (parse), `src/codegen/emit.rs` (skip main), `spec/specification.md` (document).
+
+### 2.6 Integration examples: calling NNL models from Rust, Go, C++, Python
+
+Create documented examples (in `examples/integration/`) showing how to call an NNL-compiled model from each supported host language. These serve as both documentation and reference material for the `nnc new` templates.
+
+Each example should:
+- Include a small `.nnl` model (reuse the MNIST MLP or a minimal 2-layer model)
+- Show compiling with `nnc compile --emit lib` (or `--emit shared` for Python)
+- Show the host-language code that loads input, calls `infer()`, and processes output
+- Include build instructions (Makefile, Cargo.toml, CMakeLists.txt, setup.py)
+
+### 2.7 Compile-time memory check with optional `memory_limit` config
+
+Add a compile-time memory validation step to `nnc compile` that checks total static memory usage (weights in `.rodata` + activation workspace + buffers) and warns the user if it's large.
+
+**Behavior:**
+- After memory planning, compute total static memory = weight bytes + workspace bytes
+- Emit a **warning** if total exceeds a default threshold (e.g., 256 MB): "Warning: this model requires X MB of static memory — verify your target supports this"
+- Add optional `memory_limit` config key (e.g., `memory_limit: "512MB"`) that turns the warning into a **hard compile error** if exceeded
+- Accepted units: `KB`, `MB`, `GB`
+- `nnc inspect` should surface total memory prominently
+
+**Files:** `src/sema/memory.rs` (limit checking), `src/ir/model.rs` (config field), `src/ir/lower.rs` (parse), `src/driver.rs` (emit warning/error), `spec/specification.md` (document).
 
 ---
 
@@ -271,7 +313,10 @@ SHOULD DO (same week as announcement):
 
 NICE TO HAVE (first two weeks):
   [2.3] Improve missing-weights error messages
-  [2.4] Add nnc init or document nnc inspect as validation step
+  [2.4] Add nnc new --project <lang> (rust, go, cpp, python)
+  [2.5] Add io: "none" config option (library-only output)
+  [2.6] Integration examples (Rust, Go, C++, Python)
+  [2.7] Compile-time memory check + memory_limit config
 ```
 
 ---
