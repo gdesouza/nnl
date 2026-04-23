@@ -7,9 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Added
+
+- **`--version` / `-V` flag** — `nnc --version` now prints the version from `Cargo.toml`.
+
 ### Fixed
 
 - **Conv2D rectangular kernel correctness** — fixed a bug where non-square kernels (e.g., `kernel: [3, 5]`) produced incorrect inference results due to a variable shadowing issue in the generated C code. Square kernels were unaffected. The same shadowing fix was applied to MaxPool2D and AvgPool2D codegen for consistency.
+- **ONNX import protobuf decode failure** — fixed incorrect field tag numbers in `AttributeProto` that caused all ONNX imports to fail with a protobuf wire type error. Added missing `floats` field (tag 7).
+- **Unsupported precision silently accepted** — `precision: "int8"` and `precision: "float64"` now produce a compile error instead of silently generating incorrect float32 code.
+- **Website hero demo** — the output example now shows the realistic workflow (raw bytes piped through Python) instead of implying the binary outputs formatted text.
+- **Website copyright year** — updated from `© 2024` to `© 2024–2025`.
+- **README DESIGN.md link** — corrected broken link to point to `docs/src/DESIGN.md`.
 
 ## [0.2.0] — 2025-04-20
 

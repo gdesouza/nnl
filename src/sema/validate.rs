@@ -10,6 +10,17 @@ pub fn validate(model: &Model) -> Result<Vec<String>, ValidationError> {
         warnings.push("W002: no version declared, assuming 0.2".to_string());
     }
 
+    // E008: only float32 is supported by codegen in v0.2
+    if model.config.precision != Precision::Float32 {
+        return Err(ValidationError {
+            code: "E008",
+            message: format!(
+                "precision \"{}\" is not yet supported by codegen; only \"float32\" is available in v0.2",
+                model.config.precision
+            ),
+        });
+    }
+
     // E007: unsupported target/precision combination
     if model.config.precision == Precision::Int8 && model.config.target != Target::Generic {
         return Err(ValidationError {

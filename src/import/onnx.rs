@@ -100,16 +100,18 @@ pub struct Dimension {
 pub struct AttributeProto {
     #[prost(string, tag = "1")]
     pub name: String,
-    #[prost(int32, tag = "2")]
-    pub r#type: i32,
-    #[prost(float, tag = "4")]
+    #[prost(float, tag = "2")]
     pub f: f32,
     #[prost(int64, tag = "3")]
     pub i: i64,
-    #[prost(bytes, tag = "5")]
+    #[prost(bytes, tag = "4")]
     pub s: Vec<u8>,
-    #[prost(int64, repeated, tag = "7")]
+    #[prost(float, repeated, tag = "7")]
+    pub floats: Vec<f32>,
+    #[prost(int64, repeated, tag = "8")]
     pub ints: Vec<i64>,
+    #[prost(int32, tag = "20")]
+    pub r#type: i32,
 }
 
 impl TensorProto {

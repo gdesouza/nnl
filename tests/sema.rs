@@ -96,6 +96,44 @@ model test {
 }
 
 #[test]
+fn error_unsupported_precision_int8() {
+    let source = r#"
+model test {
+    config {
+        weights: "./w.npz";
+        precision: "int8";
+    }
+    layer input = Input(shape: [1]);
+}
+"#;
+    nnc()
+        .args(["inspect", "/dev/stdin"])
+        .write_stdin(source)
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains("not yet supported by codegen"));
+}
+
+#[test]
+fn error_unsupported_precision_float64() {
+    let source = r#"
+model test {
+    config {
+        weights: "./w.npz";
+        precision: "float64";
+    }
+    layer input = Input(shape: [1]);
+}
+"#;
+    nnc()
+        .args(["inspect", "/dev/stdin"])
+        .write_stdin(source)
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains("not yet supported by codegen"));
+}
+
+#[test]
 fn error_no_input_connection() {
     let source = r#"
 model test {

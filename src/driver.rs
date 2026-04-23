@@ -18,7 +18,19 @@ struct FrontendResult {
 }
 
 pub fn run(cli: &Cli) -> i32 {
-    match &cli.command {
+    if cli.version {
+        println!("nnc {}", env!("CARGO_PKG_VERSION"));
+        return 0;
+    }
+
+    let command = match &cli.command {
+        Some(cmd) => cmd,
+        None => {
+            eprintln!("nnc: no command specified. Run `nnc --help` for usage.");
+            return 1;
+        }
+    };
+    match command {
         Command::Compile {
             source,
             emit,

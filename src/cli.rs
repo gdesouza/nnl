@@ -7,8 +7,12 @@ use std::path::PathBuf;
     about = "NNL compiler — compile neural network definitions to native binaries"
 )]
 pub struct Cli {
+    /// Print version information
+    #[arg(short = 'V', long = "version")]
+    pub version: bool,
+
     #[command(subcommand)]
-    pub command: Command,
+    pub command: Option<Command>,
 }
 
 #[derive(Subcommand)]

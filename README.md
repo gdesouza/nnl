@@ -89,7 +89,7 @@ model mnist_classifier {
 - [Code Generation](docs/codegen.md) — C backend, output formats, integration, cross-compilation
 - [Examples](docs/examples.md) — walkthroughs of included models
 - [Specification](spec/specification.md) — formal NNLang v0.2 grammar and semantics
-- [Design Decisions](DESIGN.md) — ADRs and MVP constraints
+- [Design Decisions](docs/src/DESIGN.md) — ADRs and MVP constraints
 
 ## License
 
