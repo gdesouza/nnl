@@ -279,7 +279,8 @@ pub fn emit_source(
                 // Number of iterations over outer dims (before axis)
                 let outer_count: usize = out_shape[..axis_norm].iter().product::<usize>().max(1);
                 // Number of iterations over inner dims (after axis)
-                let inner_count: usize = out_shape[axis_norm + 1..].iter().product::<usize>().max(1);
+                let inner_count: usize =
+                    out_shape[axis_norm + 1..].iter().product::<usize>().max(1);
                 let out_axis_stride = out_strides[axis_norm]; // == inner_count
 
                 let mut axis_offset = 0usize;

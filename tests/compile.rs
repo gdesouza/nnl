@@ -515,11 +515,7 @@ fn compile_and_run_concat_channel_axis() {
     write_npy_f32(&weights_dir.join("conv2.bias.npy"), &[f], &[0.0; 2]);
 
     // fc: weights [64, 1], all 1.0; bias [1] = [0]
-    write_npy_f32(
-        &weights_dir.join("fc.weight.npy"),
-        &[64, 1],
-        &vec![1.0; 64],
-    );
+    write_npy_f32(&weights_dir.join("fc.weight.npy"), &[64, 1], &vec![1.0; 64]);
     write_npy_f32(&weights_dir.join("fc.bias.npy"), &[1], &[0.0]);
 
     let model_path = tmp.path().join("concat_test.nnl");
