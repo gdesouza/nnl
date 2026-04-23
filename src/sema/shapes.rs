@@ -51,6 +51,7 @@ fn compute_output_shape(
             kernel,
             stride,
             padding,
+            ..
         } => {
             let input = get_single_input_shape(&layer.id, model, shapes)?;
             // Expect HWC: [H, W, C]
@@ -108,9 +109,26 @@ fn compute_output_shape(
             Ok(vec![total])
         }
 
+        LayerKind::GlobalAvgPool2D => {
+            let input = get_single_input_shape(&layer.id, model, shapes)?;
+            if input.len() != 3 {
+                return Err(ShapeError {
+                    code: "E002",
+                    message: format!(
+                        "shape mismatch at `{}`: GlobalAvgPool2D expects 3D input [H, W, C], got {:?}",
+                        layer.id, input
+                    ),
+                });
+            }
+            Ok(vec![input[2]])
+        }
+
         LayerKind::BatchNorm { .. }
         | LayerKind::Dropout { .. }
         | LayerKind::ReLU
+        | LayerKind::ReLU6
+        | LayerKind::LeakyReLU { .. }
+        | LayerKind::SiLU
         | LayerKind::Sigmoid
         | LayerKind::Softmax { .. } => {
             // Identity shape
@@ -118,12 +136,12 @@ fn compute_output_shape(
             Ok(input.clone())
         }
 
-        LayerKind::Add => {
+        LayerKind::Add | LayerKind::Mul => {
             let inputs = get_multi_input_shapes(&layer.id, model, shapes)?;
             if inputs.len() < 2 {
                 return Err(ShapeError {
                     code: "E004",
-                    message: format!("Add `{}` requires at least 2 inputs", layer.id),
+                    message: format!("{} `{}` requires at least 2 inputs", layer.kind.type_name(), layer.id),
                 });
             }
             let first = inputs[0];
@@ -132,8 +150,8 @@ fn compute_output_shape(
                     return Err(ShapeError {
                         code: "E004",
                         message: format!(
-                            "shape mismatch in Add `{}`: input 0 has shape {:?}, input {} has shape {:?}",
-                            layer.id, first, i, shape
+                            "shape mismatch in {} `{}`: input 0 has shape {:?}, input {} has shape {:?}",
+                            layer.kind.type_name(), layer.id, first, i, shape
                         ),
                     });
                 }

@@ -113,6 +113,11 @@ pub enum LayerType {
     ReLU,
     Sigmoid,
     Softmax,
+    GlobalAvgPool2D,
+    ReLU6,
+    LeakyReLU,
+    SiLU,
+    Mul,
 }
 
 impl std::fmt::Display for LayerType {
@@ -131,6 +136,11 @@ impl std::fmt::Display for LayerType {
             LayerType::ReLU => write!(f, "ReLU"),
             LayerType::Sigmoid => write!(f, "Sigmoid"),
             LayerType::Softmax => write!(f, "Softmax"),
+            LayerType::GlobalAvgPool2D => write!(f, "GlobalAvgPool2D"),
+            LayerType::ReLU6 => write!(f, "ReLU6"),
+            LayerType::LeakyReLU => write!(f, "LeakyReLU"),
+            LayerType::SiLU => write!(f, "SiLU"),
+            LayerType::Mul => write!(f, "Mul"),
         }
     }
 }

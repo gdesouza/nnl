@@ -122,6 +122,7 @@ pub enum LayerKind {
         kernel: KernelSize,
         stride: usize,
         padding: Padding,
+        groups: usize,
     },
     MaxPool2D {
         kernel: KernelSize,
@@ -150,6 +151,13 @@ pub enum LayerKind {
         #[allow(dead_code)]
         axis: i64,
     },
+    GlobalAvgPool2D,
+    ReLU6,
+    LeakyReLU {
+        alpha: f64,
+    },
+    SiLU,
+    Mul,
 }
 
 impl LayerKind {
@@ -168,6 +176,11 @@ impl LayerKind {
             LayerKind::ReLU => "ReLU",
             LayerKind::Sigmoid => "Sigmoid",
             LayerKind::Softmax { .. } => "Softmax",
+            LayerKind::GlobalAvgPool2D => "GlobalAvgPool2D",
+            LayerKind::ReLU6 => "ReLU6",
+            LayerKind::LeakyReLU { .. } => "LeakyReLU",
+            LayerKind::SiLU => "SiLU",
+            LayerKind::Mul => "Mul",
         }
     }
 }

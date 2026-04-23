@@ -444,6 +444,7 @@ fn map_node(
             let mut kernel = 3;
             let mut stride = 1;
             let mut padding = "valid";
+            let mut groups = 1usize;
 
             if let Some(w_name) = node.input.get(1)
                 && let Some(tensor) = initializers.get(w_name.as_str())
@@ -485,14 +486,22 @@ fn map_node(
                             kernel = k as usize;
                         }
                     }
+                    "group" => {
+                        groups = attr.i as usize;
+                    }
                     _ => {}
                 }
             }
 
+            let groups_str = if groups > 1 {
+                format!(", groups: {groups}")
+            } else {
+                String::new()
+            };
             Ok((
                 layer_id,
                 Some(format!(
-                    "Conv2D(filters: {filters}, kernel: {kernel}, stride: {stride}, padding: \"{padding}\")"
+                    "Conv2D(filters: {filters}, kernel: {kernel}, stride: {stride}, padding: \"{padding}\"{groups_str})"
                 )),
                 weights,
             ))
@@ -563,6 +572,41 @@ fn map_node(
         "Relu" => Ok((layer_id, Some("ReLU()".to_string()), Vec::new())),
         "Sigmoid" => Ok((layer_id, Some("Sigmoid()".to_string()), Vec::new())),
         "Softmax" => Ok((layer_id, Some("Softmax()".to_string()), Vec::new())),
+        "GlobalAveragePool" => Ok((layer_id, Some("GlobalAvgPool2D()".to_string()), Vec::new())),
+        "LeakyRelu" => {
+            let alpha = node
+                .attribute
+                .iter()
+                .find(|a| a.name == "alpha")
+                .map(|a| a.f)
+                .unwrap_or(0.01);
+            Ok((
+                layer_id,
+                Some(format!("LeakyReLU(alpha: {alpha})")),
+                Vec::new(),
+            ))
+        }
+        "Clip" => {
+            // Clip(min=0, max=6) → ReLU6
+            let min_val = node
+                .attribute
+                .iter()
+                .find(|a| a.name == "min")
+                .map(|a| a.f)
+                .unwrap_or(f32::MIN);
+            let max_val = node
+                .attribute
+                .iter()
+                .find(|a| a.name == "max")
+                .map(|a| a.f)
+                .unwrap_or(f32::MAX);
+            if min_val == 0.0 && max_val == 6.0 {
+                Ok((layer_id, Some("ReLU6()".to_string()), Vec::new()))
+            } else {
+                Ok((layer_id, None, Vec::new()))
+            }
+        }
+        "Mul" => Ok((layer_id, Some("Mul()".to_string()), Vec::new())),
         _ => Ok((layer_id, None, Vec::new())),
     }
 }
@@ -584,6 +628,10 @@ fn make_layer_id(node: &NodeProto, op: &str, counter: &mut HashMap<String, usize
         "Relu" => "relu",
         "Sigmoid" => "sigmoid",
         "Softmax" => "softmax",
+        "GlobalAveragePool" => "gap",
+        "LeakyRelu" => "leaky_relu",
+        "Clip" => "relu6",
+        "Mul" => "mul",
         other => other,
     };
     let count = counter.entry(base.to_string()).or_insert(0);

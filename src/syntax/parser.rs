@@ -306,6 +306,11 @@ impl<'a> Parser<'a> {
             Some(Token::ReLU) => LayerType::ReLU,
             Some(Token::Sigmoid) => LayerType::Sigmoid,
             Some(Token::Softmax) => LayerType::Softmax,
+            Some(Token::GlobalAvgPool2D) => LayerType::GlobalAvgPool2D,
+            Some(Token::ReLU6) => LayerType::ReLU6,
+            Some(Token::LeakyReLU) => LayerType::LeakyReLU,
+            Some(Token::SiLU) => LayerType::SiLU,
+            Some(Token::Mul) => LayerType::Mul,
             Some(other) => {
                 return Err(ParseError {
                     message: format!("expected layer type, got `{other}`"),

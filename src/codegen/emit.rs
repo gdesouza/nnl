@@ -211,6 +211,27 @@ pub fn emit_source(
                 writeln!(c, "    }}").unwrap();
             }
 
+            LayerKind::ReLU6 => {
+                let src = src_buf(&buf_plan, layer_id, model);
+                writeln!(c, "    for (int i = 0; i < {out_elems}; i++) {{").unwrap();
+                writeln!(c, "        {dst}[i] = fminf(fmaxf(0.0f, {src}[i]), 6.0f);").unwrap();
+                writeln!(c, "    }}").unwrap();
+            }
+
+            LayerKind::LeakyReLU { alpha } => {
+                let src = src_buf(&buf_plan, layer_id, model);
+                writeln!(c, "    for (int i = 0; i < {out_elems}; i++) {{").unwrap();
+                writeln!(c, "        {dst}[i] = {src}[i] > 0.0f ? {src}[i] : {alpha}f * {src}[i];").unwrap();
+                writeln!(c, "    }}").unwrap();
+            }
+
+            LayerKind::SiLU => {
+                let src = src_buf(&buf_plan, layer_id, model);
+                writeln!(c, "    for (int i = 0; i < {out_elems}; i++) {{").unwrap();
+                writeln!(c, "        {dst}[i] = {src}[i] / (1.0f + expf(-{src}[i]));").unwrap();
+                writeln!(c, "    }}").unwrap();
+            }
+
             LayerKind::Sigmoid => {
                 let src = src_buf(&buf_plan, layer_id, model);
                 writeln!(c, "    for (int i = 0; i < {out_elems}; i++) {{").unwrap();
@@ -243,6 +264,20 @@ pub fn emit_source(
                 writeln!(c, "    }}").unwrap();
             }
 
+            LayerKind::GlobalAvgPool2D => {
+                let src = src_buf(&buf_plan, layer_id, model);
+                let in_shape = input_shape_for(layer_id, model, shape_info);
+                let (h, w, channels) = (in_shape[0], in_shape[1], in_shape[2]);
+                let spatial = h * w;
+                writeln!(c, "    for (int ch = 0; ch < {channels}; ch++) {{").unwrap();
+                writeln!(c, "        float s = 0.0f;").unwrap();
+                writeln!(c, "        for (int hw = 0; hw < {spatial}; hw++) {{").unwrap();
+                writeln!(c, "            s += {src}[hw * {channels} + ch];").unwrap();
+                writeln!(c, "        }}").unwrap();
+                writeln!(c, "        {dst}[ch] = s / {spatial}.0f;").unwrap();
+                writeln!(c, "    }}").unwrap();
+            }
+
             LayerKind::Add => {
                 let input_ids = get_input_layer_ids(layer_id, model);
                 if let Some(first_id) = input_ids.first() {
@@ -256,6 +291,24 @@ pub fn emit_source(
                         let add_src = format!("nnc_buf_{}", buf_plan.slot[*add_id]);
                         writeln!(c, "    for (int i = 0; i < {out_elems}; i++) {{").unwrap();
                         writeln!(c, "        {dst}[i] += {add_src}[i];").unwrap();
+                        writeln!(c, "    }}").unwrap();
+                    }
+                }
+            }
+
+            LayerKind::Mul => {
+                let input_ids = get_input_layer_ids(layer_id, model);
+                if let Some(first_id) = input_ids.first() {
+                    let first_src = format!("nnc_buf_{}", buf_plan.slot[*first_id]);
+                    writeln!(
+                        c,
+                        "    memcpy({dst}, {first_src}, {out_elems} * sizeof(float));"
+                    )
+                    .unwrap();
+                    for mul_id in input_ids.iter().skip(1) {
+                        let mul_src = format!("nnc_buf_{}", buf_plan.slot[*mul_id]);
+                        writeln!(c, "    for (int i = 0; i < {out_elems}; i++) {{").unwrap();
+                        writeln!(c, "        {dst}[i] *= {mul_src}[i];").unwrap();
                         writeln!(c, "    }}").unwrap();
                     }
                 }
@@ -320,6 +373,7 @@ pub fn emit_source(
                 kernel,
                 stride,
                 padding,
+                groups,
             } => {
                 let src = src_buf(&buf_plan, layer_id, model);
                 let in_shape = input_shape_for(layer_id, model, shape_info);
@@ -329,6 +383,8 @@ pub fn emit_source(
                 let (oh, ow) = (out_shape[0], out_shape[1]);
                 let w_var = weight_var(&format!("{layer_id}.weight"));
                 let b_var = weight_var(&format!("{layer_id}.bias"));
+                let ci_per_group = ic / groups;
+                let f_per_group = filters / groups;
 
                 match padding {
                     Padding::Valid => {
@@ -336,15 +392,29 @@ pub fn emit_source(
                         writeln!(c, "      for (int ow_ = 0; ow_ < {ow}; ow_++) {{").unwrap();
                         writeln!(c, "        for (int f = 0; f < {filters}; f++) {{").unwrap();
                         writeln!(c, "          float sum = {b_var}[f];").unwrap();
-                        writeln!(c, "          for (int kh_ = 0; kh_ < {kh}; kh_++) {{").unwrap();
-                        writeln!(c, "            for (int kw_ = 0; kw_ < {kw}; kw_++) {{").unwrap();
-                        writeln!(c, "              for (int ci = 0; ci < {ic}; ci++) {{").unwrap();
-                        writeln!(c, "                int ih_ = oh * {stride} + kh_;").unwrap();
-                        writeln!(c, "                int iw_ = ow_ * {stride} + kw_;").unwrap();
-                        writeln!(c, "                sum += {src}[(ih_ * {iw} + iw_) * {ic} + ci] * {w_var}[((f * {ic} + ci) * {kh} + kh_) * {kw} + kw_];").unwrap();
-                        writeln!(c, "              }}").unwrap();
-                        writeln!(c, "            }}").unwrap();
-                        writeln!(c, "          }}").unwrap();
+                        if *groups == 1 {
+                            writeln!(c, "          for (int kh_ = 0; kh_ < {kh}; kh_++) {{").unwrap();
+                            writeln!(c, "            for (int kw_ = 0; kw_ < {kw}; kw_++) {{").unwrap();
+                            writeln!(c, "              for (int ci = 0; ci < {ic}; ci++) {{").unwrap();
+                            writeln!(c, "                int ih_ = oh * {stride} + kh_;").unwrap();
+                            writeln!(c, "                int iw_ = ow_ * {stride} + kw_;").unwrap();
+                            writeln!(c, "                sum += {src}[(ih_ * {iw} + iw_) * {ic} + ci] * {w_var}[((f * {ic} + ci) * {kh} + kh_) * {kw} + kw_];").unwrap();
+                            writeln!(c, "              }}").unwrap();
+                            writeln!(c, "            }}").unwrap();
+                            writeln!(c, "          }}").unwrap();
+                        } else {
+                            writeln!(c, "          int g = f / {f_per_group};").unwrap();
+                            writeln!(c, "          int ci_start = g * {ci_per_group};").unwrap();
+                            writeln!(c, "          for (int kh_ = 0; kh_ < {kh}; kh_++) {{").unwrap();
+                            writeln!(c, "            for (int kw_ = 0; kw_ < {kw}; kw_++) {{").unwrap();
+                            writeln!(c, "              for (int ci = 0; ci < {ci_per_group}; ci++) {{").unwrap();
+                            writeln!(c, "                int ih_ = oh * {stride} + kh_;").unwrap();
+                            writeln!(c, "                int iw_ = ow_ * {stride} + kw_;").unwrap();
+                            writeln!(c, "                sum += {src}[(ih_ * {iw} + iw_) * {ic} + ci_start + ci] * {w_var}[((f * {ci_per_group} + ci) * {kh} + kh_) * {kw} + kw_];").unwrap();
+                            writeln!(c, "              }}").unwrap();
+                            writeln!(c, "            }}").unwrap();
+                            writeln!(c, "          }}").unwrap();
+                        }
                         writeln!(
                             c,
                             "          {dst}[(oh * {ow} + ow_) * {filters} + f] = sum;"
@@ -361,24 +431,47 @@ pub fn emit_source(
                         writeln!(c, "      for (int ow_ = 0; ow_ < {ow}; ow_++) {{").unwrap();
                         writeln!(c, "        for (int f = 0; f < {filters}; f++) {{").unwrap();
                         writeln!(c, "          float sum = {b_var}[f];").unwrap();
-                        writeln!(c, "          for (int kh_ = 0; kh_ < {kh}; kh_++) {{").unwrap();
-                        writeln!(c, "            for (int kw_ = 0; kw_ < {kw}; kw_++) {{").unwrap();
-                        writeln!(c, "              int ih_ = oh * {stride} + kh_ - {pad_h};")
+                        if *groups == 1 {
+                            writeln!(c, "          for (int kh_ = 0; kh_ < {kh}; kh_++) {{").unwrap();
+                            writeln!(c, "            for (int kw_ = 0; kw_ < {kw}; kw_++) {{").unwrap();
+                            writeln!(c, "              int ih_ = oh * {stride} + kh_ - {pad_h};")
+                                .unwrap();
+                            writeln!(c, "              int iw_ = ow_ * {stride} + kw_ - {pad_w};")
+                                .unwrap();
+                            writeln!(
+                                c,
+                                "              if (ih_ >= 0 && ih_ < {ih} && iw_ >= 0 && iw_ < {iw}) {{"
+                            )
                             .unwrap();
-                        writeln!(c, "              int iw_ = ow_ * {stride} + kw_ - {pad_w};")
+                            writeln!(c, "                for (int ci = 0; ci < {ic}; ci++) {{")
+                                .unwrap();
+                            writeln!(c, "                  sum += {src}[(ih_ * {iw} + iw_) * {ic} + ci] * {w_var}[((f * {ic} + ci) * {kh} + kh_) * {kw} + kw_];").unwrap();
+                            writeln!(c, "                }}").unwrap();
+                            writeln!(c, "              }}").unwrap();
+                            writeln!(c, "            }}").unwrap();
+                            writeln!(c, "          }}").unwrap();
+                        } else {
+                            writeln!(c, "          int g = f / {f_per_group};").unwrap();
+                            writeln!(c, "          int ci_start = g * {ci_per_group};").unwrap();
+                            writeln!(c, "          for (int kh_ = 0; kh_ < {kh}; kh_++) {{").unwrap();
+                            writeln!(c, "            for (int kw_ = 0; kw_ < {kw}; kw_++) {{").unwrap();
+                            writeln!(c, "              int ih_ = oh * {stride} + kh_ - {pad_h};")
+                                .unwrap();
+                            writeln!(c, "              int iw_ = ow_ * {stride} + kw_ - {pad_w};")
+                                .unwrap();
+                            writeln!(
+                                c,
+                                "              if (ih_ >= 0 && ih_ < {ih} && iw_ >= 0 && iw_ < {iw}) {{"
+                            )
                             .unwrap();
-                        writeln!(
-                            c,
-                            "              if (ih_ >= 0 && ih_ < {ih} && iw_ >= 0 && iw_ < {iw}) {{"
-                        )
-                        .unwrap();
-                        writeln!(c, "                for (int ci = 0; ci < {ic}; ci++) {{")
-                            .unwrap();
-                        writeln!(c, "                  sum += {src}[(ih_ * {iw} + iw_) * {ic} + ci] * {w_var}[((f * {ic} + ci) * {kh} + kh_) * {kw} + kw_];").unwrap();
-                        writeln!(c, "                }}").unwrap();
-                        writeln!(c, "              }}").unwrap();
-                        writeln!(c, "            }}").unwrap();
-                        writeln!(c, "          }}").unwrap();
+                            writeln!(c, "                for (int ci = 0; ci < {ci_per_group}; ci++) {{")
+                                .unwrap();
+                            writeln!(c, "                  sum += {src}[(ih_ * {iw} + iw_) * {ic} + ci_start + ci] * {w_var}[((f * {ci_per_group} + ci) * {kh} + kh_) * {kw} + kw_];").unwrap();
+                            writeln!(c, "                }}").unwrap();
+                            writeln!(c, "              }}").unwrap();
+                            writeln!(c, "            }}").unwrap();
+                            writeln!(c, "          }}").unwrap();
+                        }
                         writeln!(
                             c,
                             "          {dst}[(oh * {ow} + ow_) * {filters} + f] = sum;"

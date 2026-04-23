@@ -183,6 +183,7 @@ fn lower_layer(layer: &ast::LayerDecl) -> Result<Layer, LowerError> {
             let filters = get_required_usize_param(&layer.params, "filters", &layer.span)?;
             let kernel = get_required_kernel_param(&layer.params, "kernel", &layer.span)?;
             let stride = get_optional_usize_param(&layer.params, "stride")?.unwrap_or(1);
+            let groups = get_optional_usize_param(&layer.params, "groups")?.unwrap_or(1);
             let padding = match get_optional_string_param(&layer.params, "padding")? {
                 Some("valid") | None => Padding::Valid,
                 Some("same") => Padding::Same,
@@ -201,6 +202,7 @@ fn lower_layer(layer: &ast::LayerDecl) -> Result<Layer, LowerError> {
                 kernel,
                 stride,
                 padding,
+                groups,
             }
         }
         ast::LayerType::MaxPool2D => {
@@ -233,6 +235,14 @@ fn lower_layer(layer: &ast::LayerDecl) -> Result<Layer, LowerError> {
             let axis = get_optional_int_param(&layer.params, "axis")?.unwrap_or(-1);
             LayerKind::Softmax { axis }
         }
+        ast::LayerType::GlobalAvgPool2D => LayerKind::GlobalAvgPool2D,
+        ast::LayerType::ReLU6 => LayerKind::ReLU6,
+        ast::LayerType::LeakyReLU => {
+            let alpha = get_optional_float_param(&layer.params, "alpha")?.unwrap_or(0.01);
+            LayerKind::LeakyReLU { alpha }
+        }
+        ast::LayerType::SiLU => LayerKind::SiLU,
+        ast::LayerType::Mul => LayerKind::Mul,
     };
 
     Ok(Layer {

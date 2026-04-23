@@ -49,6 +49,16 @@ pub enum Token {
     Sigmoid,
     #[token("Softmax")]
     Softmax,
+    #[token("GlobalAvgPool2D")]
+    GlobalAvgPool2D,
+    #[token("ReLU6")]
+    ReLU6,
+    #[token("LeakyReLU")]
+    LeakyReLU,
+    #[token("SiLU")]
+    SiLU,
+    #[token("Mul")]
+    Mul,
 
     // Literals
     #[regex(r"[0-9]+\.[0-9]+", |lex| lex.slice().parse::<f64>().ok())]
@@ -113,6 +123,11 @@ impl fmt::Display for Token {
             Token::ReLU => write!(f, "ReLU"),
             Token::Sigmoid => write!(f, "Sigmoid"),
             Token::Softmax => write!(f, "Softmax"),
+            Token::GlobalAvgPool2D => write!(f, "GlobalAvgPool2D"),
+            Token::ReLU6 => write!(f, "ReLU6"),
+            Token::LeakyReLU => write!(f, "LeakyReLU"),
+            Token::SiLU => write!(f, "SiLU"),
+            Token::Mul => write!(f, "Mul"),
             Token::Float(v) => write!(f, "{v}"),
             Token::Integer(v) => write!(f, "{v}"),
             Token::String(v) => write!(f, "\"{v}\""),

@@ -30,15 +30,16 @@ pub fn required_weights(model: &Model, shape_info: &ShapeInfo) -> Vec<RequiredWe
                 });
             }
             LayerKind::Conv2D {
-                filters, kernel, ..
+                filters, kernel, groups, ..
             } => {
                 let in_channels = input_shape.and_then(|s| s.last().copied()).unwrap_or(0);
                 let kh = kernel.height();
                 let kw = kernel.width();
-                // weight: [filters, in_channels, kH, kW]
+                let ci_per_group = in_channels / groups;
+                // weight: [filters, in_channels/groups, kH, kW]
                 required.push(RequiredWeight {
                     name: format!("{}.weight", layer.id),
-                    expected_shape: vec![*filters, in_channels, kh, kw],
+                    expected_shape: vec![*filters, ci_per_group, kh, kw],
                 });
                 // bias: [filters]
                 required.push(RequiredWeight {
