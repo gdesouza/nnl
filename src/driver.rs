@@ -326,6 +326,7 @@ fn default_output_path(source: &Path, emit: &EmitFormat) -> PathBuf {
         EmitFormat::Lib => PathBuf::from(format!("lib{stem}.a")),
         EmitFormat::Shared => PathBuf::from(format!("lib{stem}.so")),
         EmitFormat::Header => PathBuf::from(format!("{stem}.h")),
+        EmitFormat::C => PathBuf::from(format!("{stem}.c")),
     }
 }
 

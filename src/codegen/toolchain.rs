@@ -93,6 +93,12 @@ pub fn compile(
                 message: format!("failed to write header: {e}"),
             })?;
         }
+        EmitFormat::C => {
+            std::fs::write(output, c_source).map_err(|e| ToolchainError {
+                message: format!("failed to write C source: {e}"),
+            })?;
+            copy_header_beside(&hdr_path, output)?;
+        }
     }
 
     Ok(())

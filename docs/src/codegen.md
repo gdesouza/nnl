@@ -54,6 +54,7 @@ int my_model_output_size(void);  // total float elements in output tensor
 | `lib` | `.a` static archive | Static library + `.h` header | Distribution as a self-contained library |
 | `shared` | `.so` shared library | Shared object + `.h` header | Dynamic linking, plugins |
 | `header` | `.h` file only | Header with API declarations | Inspection, IDE integration |
+| `c` | `.c` + `.h` source files | Generated C source and header | Debugging, auditing generated code |
 
 Under the hood, these map to standard compiler/archiver invocations:
 

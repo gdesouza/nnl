@@ -81,6 +81,7 @@ pub enum EmitFormat {
     Lib,
     Shared,
     Header,
+    C,
 }
 
 pub fn parse() -> Cli {

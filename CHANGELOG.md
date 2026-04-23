@@ -10,6 +10,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 ### Added
 
 - **`--version` / `-V` flag** — `nnc --version` now prints the version from `Cargo.toml`.
+- **`--emit c` flag** — `nnc compile model.nnl --emit c` writes the generated `.c` and `.h` files directly without invoking the C compiler, useful for debugging and auditing generated code.
 
 ### Fixed
 
