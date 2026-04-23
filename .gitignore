@@ -1,6 +1,7 @@
 /target
 /.venv
 model_bin
+docs/book
 
 # Generated import test artifacts
 examples/import_test/model.onnx
