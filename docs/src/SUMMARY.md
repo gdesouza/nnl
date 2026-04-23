@@ -16,4 +16,4 @@
 
 [ONNX Import](onnx-import.md)
 
-[Changelog](changelog.md)
+[Release Notes](release-notes.md)
