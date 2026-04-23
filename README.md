@@ -3,7 +3,7 @@
 [![CI](https://github.com/gdesouza/nnl/actions/workflows/ci.yml/badge.svg)](https://github.com/gdesouza/nnl/actions/workflows/ci.yml)
 [![Release](https://github.com/gdesouza/nnl/actions/workflows/release.yml/badge.svg)](https://github.com/gdesouza/nnl/actions/workflows/release.yml)
 [![Security](https://github.com/gdesouza/nnl/actions/workflows/security.yml/badge.svg)](https://github.com/gdesouza/nnl/actions/workflows/security.yml)
-[![Latest Release](https://img.shields.io/github/v/release/gdesouza/nnl)](https://github.com/gdesouza/nnl/releases/tag/v0.2.0)
+[![Latest Release](https://img.shields.io/github/v/release/gdesouza/nnl)](https://github.com/gdesouza/nnl/releases/tag/v0.4.0)
 
 NNL is a declarative language for defining neural network architectures, paired with the `nnc` compiler that produces **standalone, zero-dependency native binaries** with embedded weights.
 
@@ -66,9 +66,9 @@ model mnist_classifier {
 - Low-latency inference (real-time control, HFT, robotics)
 - Minimal-dependency deployments (air-gapped, hardened containers, serverless)
 
-## Current Scope (v0.3)
+## Current Scope (v0.4)
 
-NNLang v0.3 targets **small to medium CNN and MLP models** for inference.
+NNLang v0.4 targets **small to medium CNN and MLP models** for inference.
 The following limitations apply:
 
 - **float32 only.** `int8` and `float64` precision are reserved for future versions.

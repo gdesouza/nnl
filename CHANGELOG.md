@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.4.0] — 2026-04-23
+
 ### Added
 
 - **`--version` / `-V` flag** — `nnc --version` now prints the version from `Cargo.toml`.
