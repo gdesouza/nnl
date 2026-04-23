@@ -126,6 +126,10 @@ This adds `-mfpu=neon` to the compiler flags. Available targets and their flags:
 | `"avx512"` | `-mavx512f` |
 | `"arm_neon"` | `-mfpu=neon` |
 
+> **Note:** Target flags enable the C compiler's autovectorizer. Hand-tuned SIMD
+> intrinsics (AVX2, NEON) are planned for a future release. The generated C code
+> uses scalar loops that the C compiler may vectorize automatically.
+
 ## Memory Model
 
 - **Static workspace buffers** — all activation memory is statically allocated (`static float` arrays). No `malloc` is ever called.

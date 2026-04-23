@@ -66,6 +66,23 @@ model mnist_classifier {
 - Low-latency inference (real-time control, HFT, robotics)
 - Minimal-dependency deployments (air-gapped, hardened containers, serverless)
 
+## Current Scope (v0.3)
+
+NNLang v0.3 targets **small to medium CNN and MLP models** for inference.
+The following limitations apply:
+
+- **float32 only.** `int8` and `float64` precision are reserved for future versions.
+- **Supported layers:** Input, Dense, Conv2D, MaxPool2D, AvgPool2D, Flatten,
+  BatchNorm, Dropout, Add, Concat, ReLU, Sigmoid, Softmax.
+- **No recurrent layers** (LSTM, GRU), **no transformer layers** (Attention,
+  LayerNorm), **no 1D convolutions**, **no Reshape/Transpose**.
+- **Single input, single output.** Multi-input/output models are not supported.
+- **ONNX import** covers the ops listed above; unsupported ops are emitted as
+  comments for manual resolution.
+- **SIMD:** the compiler passes target flags (e.g., `-mavx2`) to the C compiler
+  for autovectorization but does not emit hand-tuned SIMD intrinsics yet.
+- **Platforms:** Linux and macOS. Windows support is not tested.
+
 ## Commands
 
 | Command | Description |
@@ -89,7 +106,6 @@ model mnist_classifier {
 - [Code Generation](docs/codegen.md) — C backend, output formats, integration, cross-compilation
 - [Examples](docs/examples.md) — walkthroughs of included models
 - [Specification](spec/specification.md) — formal NNLang v0.2 grammar and semantics
-- [Design Decisions](docs/src/DESIGN.md) — ADRs and MVP constraints
 
 ## License
 
