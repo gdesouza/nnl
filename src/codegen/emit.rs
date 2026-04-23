@@ -298,12 +298,12 @@ pub fn emit_source(
                         writeln!(c, "      for (int ow_ = 0; ow_ < {ow}; ow_++) {{").unwrap();
                         writeln!(c, "        for (int f = 0; f < {filters}; f++) {{").unwrap();
                         writeln!(c, "          float sum = {b_var}[f];").unwrap();
-                        writeln!(c, "          for (int kh = 0; kh < {kh}; kh++) {{").unwrap();
+                        writeln!(c, "          for (int kh_ = 0; kh_ < {kh}; kh_++) {{").unwrap();
                         writeln!(c, "            for (int kw_ = 0; kw_ < {kw}; kw_++) {{").unwrap();
                         writeln!(c, "              for (int ci = 0; ci < {ic}; ci++) {{").unwrap();
-                        writeln!(c, "                int ih_ = oh * {stride} + kh;").unwrap();
+                        writeln!(c, "                int ih_ = oh * {stride} + kh_;").unwrap();
                         writeln!(c, "                int iw_ = ow_ * {stride} + kw_;").unwrap();
-                        writeln!(c, "                sum += {src}[(ih_ * {iw} + iw_) * {ic} + ci] * {w_var}[((f * {ic} + ci) * {kh} + kh) * {kw} + kw_];").unwrap();
+                        writeln!(c, "                sum += {src}[(ih_ * {iw} + iw_) * {ic} + ci] * {w_var}[((f * {ic} + ci) * {kh} + kh_) * {kw} + kw_];").unwrap();
                         writeln!(c, "              }}").unwrap();
                         writeln!(c, "            }}").unwrap();
                         writeln!(c, "          }}").unwrap();
@@ -323,9 +323,9 @@ pub fn emit_source(
                         writeln!(c, "      for (int ow_ = 0; ow_ < {ow}; ow_++) {{").unwrap();
                         writeln!(c, "        for (int f = 0; f < {filters}; f++) {{").unwrap();
                         writeln!(c, "          float sum = {b_var}[f];").unwrap();
-                        writeln!(c, "          for (int kh = 0; kh < {kh}; kh++) {{").unwrap();
+                        writeln!(c, "          for (int kh_ = 0; kh_ < {kh}; kh_++) {{").unwrap();
                         writeln!(c, "            for (int kw_ = 0; kw_ < {kw}; kw_++) {{").unwrap();
-                        writeln!(c, "              int ih_ = oh * {stride} + kh - {pad_h};")
+                        writeln!(c, "              int ih_ = oh * {stride} + kh_ - {pad_h};")
                             .unwrap();
                         writeln!(c, "              int iw_ = ow_ * {stride} + kw_ - {pad_w};")
                             .unwrap();
@@ -336,7 +336,7 @@ pub fn emit_source(
                         .unwrap();
                         writeln!(c, "                for (int ci = 0; ci < {ic}; ci++) {{")
                             .unwrap();
-                        writeln!(c, "                  sum += {src}[(ih_ * {iw} + iw_) * {ic} + ci] * {w_var}[((f * {ic} + ci) * {kh} + kh) * {kw} + kw_];").unwrap();
+                        writeln!(c, "                  sum += {src}[(ih_ * {iw} + iw_) * {ic} + ci] * {w_var}[((f * {ic} + ci) * {kh} + kh_) * {kw} + kw_];").unwrap();
                         writeln!(c, "                }}").unwrap();
                         writeln!(c, "              }}").unwrap();
                         writeln!(c, "            }}").unwrap();
@@ -366,9 +366,9 @@ pub fn emit_source(
                 writeln!(c, "      for (int ow_ = 0; ow_ < {ow}; ow_++) {{").unwrap();
                 writeln!(c, "        for (int ch = 0; ch < {channels}; ch++) {{").unwrap();
                 writeln!(c, "          float mv = -1e38f;").unwrap();
-                writeln!(c, "          for (int kh = 0; kh < {kh}; kh++) {{").unwrap();
+                writeln!(c, "          for (int kh_ = 0; kh_ < {kh}; kh_++) {{").unwrap();
                 writeln!(c, "            for (int kw_ = 0; kw_ < {kw}; kw_++) {{").unwrap();
-                writeln!(c, "              int ih_ = oh * {s} + kh;").unwrap();
+                writeln!(c, "              int ih_ = oh * {s} + kh_;").unwrap();
                 writeln!(c, "              int iw_ = ow_ * {s} + kw_;").unwrap();
                 writeln!(
                     c,
@@ -402,9 +402,9 @@ pub fn emit_source(
                 writeln!(c, "      for (int ow_ = 0; ow_ < {ow}; ow_++) {{").unwrap();
                 writeln!(c, "        for (int ch = 0; ch < {channels}; ch++) {{").unwrap();
                 writeln!(c, "          float s = 0.0f;").unwrap();
-                writeln!(c, "          for (int kh = 0; kh < {kh}; kh++) {{").unwrap();
+                writeln!(c, "          for (int kh_ = 0; kh_ < {kh}; kh_++) {{").unwrap();
                 writeln!(c, "            for (int kw_ = 0; kw_ < {kw}; kw_++) {{").unwrap();
-                writeln!(c, "              int ih_ = oh * {s} + kh;").unwrap();
+                writeln!(c, "              int ih_ = oh * {s} + kh_;").unwrap();
                 writeln!(c, "              int iw_ = ow_ * {s} + kw_;").unwrap();
                 writeln!(
                     c,

@@ -484,3 +484,96 @@ model resblock {{
         assert!((v - 1.0).abs() < 1e-4, "output[{i}] = {v}, expected ~1.0");
     }
 }
+
+#[test]
+fn compile_and_run_conv2d_rectangular_kernel() {
+    // Regression test: rectangular kernels (kh != kw) previously produced wrong
+    // weight indices because the C loop variable `kh` shadowed the constant.
+    let tmp = tempfile::tempdir().unwrap();
+    let weights_dir = tmp.path().join("weights");
+    std::fs::create_dir_all(&weights_dir).unwrap();
+
+    // Model: Input [6,6,1] -> Conv2D(filters:1, kernel:[3,5], stride:1, valid) -> Flatten -> Dense(1)
+    // Conv2D output shape with valid padding: [(6-3)/1+1, (6-5)/1+1, 1] = [4, 2, 1]
+    // Flatten: [8], Dense: [1]
+    let kh = 3;
+    let kw = 5;
+    let ic = 1;
+    let filters = 1;
+
+    // conv weights: all 1.0, shape [filters, ic, kh, kw] = [1,1,3,5]
+    write_npy_f32(
+        &weights_dir.join("conv.weight.npy"),
+        &[filters, ic, kh, kw],
+        &vec![1.0; filters * ic * kh * kw],
+    );
+    write_npy_f32(&weights_dir.join("conv.bias.npy"), &[filters], &[0.0]);
+
+    let flat_size = 4 * 2 * filters; // 8
+    write_npy_f32(
+        &weights_dir.join("fc.weight.npy"),
+        &[flat_size, 1],
+        &vec![1.0; flat_size],
+    );
+    write_npy_f32(&weights_dir.join("fc.bias.npy"), &[1], &[0.0]);
+
+    let model_path = tmp.path().join("rect_cnn.nnl");
+    let model_src = format!(
+        r#"version 0.2;
+model rect_cnn {{
+    config {{ weights: "{}"; io: "stdio"; }}
+    layer input   = Input(shape: [6, 6, 1]);
+    layer conv    = Conv2D(filters: 1, kernel: [3, 5], stride: 1, padding: "valid");
+    layer flatten = Flatten();
+    layer fc      = Dense(units: 1);
+}}
+"#,
+        weights_dir.display()
+    );
+    std::fs::write(&model_path, &model_src).unwrap();
+
+    let exe_path = tmp.path().join("rect_cnn");
+    nnc()
+        .args([
+            "compile",
+            model_path.to_str().unwrap(),
+            "--emit",
+            "exe",
+            "-o",
+            exe_path.to_str().unwrap(),
+        ])
+        .assert()
+        .success();
+
+    // Input: 6x6x1 = 36 floats, all 1.0
+    // Conv2D(kernel=[3,5], valid): each output = sum of 3x5=15 ones * weight 1 = 15.0
+    // Output [4,2,1] = 8 values, all 15.0
+    // Flatten: [8] = [15, 15, ..., 15]
+    // Dense(1): weight all 1.0, bias 0 => 15*8 = 120.0
+    let input_bytes: Vec<u8> = [1.0_f32; 36].iter().flat_map(|v| v.to_ne_bytes()).collect();
+
+    let output = Command::new(&exe_path)
+        .stdin(std::process::Stdio::piped())
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::piped())
+        .spawn()
+        .and_then(|mut child| {
+            use std::io::Write;
+            child.stdin.take().unwrap().write_all(&input_bytes)?;
+            child.wait_with_output()
+        })
+        .expect("failed to run rect_cnn binary");
+
+    assert!(
+        output.status.success(),
+        "rect_cnn binary failed: {:?}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert_eq!(output.stdout.len(), 4, "expected 1 float32 (4 bytes)");
+
+    let result = f32::from_ne_bytes(output.stdout[..4].try_into().unwrap());
+    assert!(
+        (result - 120.0).abs() < 1e-3,
+        "expected ~120.0 for rectangular kernel [3,5], got {result}"
+    );
+}
