@@ -17,3 +17,5 @@
 [ONNX Import](onnx-import.md)
 
 [Design Decisions](DESIGN.md)
+
+[Changelog](changelog.md)
