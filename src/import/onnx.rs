@@ -1,3 +1,5 @@
+use std::path::Path;
+
 use prost::Message;
 
 #[derive(Clone, PartialEq, Message)]
@@ -58,6 +60,18 @@ pub struct TensorProto {
     pub raw_data: Vec<u8>,
     #[prost(float, repeated, tag = "4")]
     pub float_data: Vec<f32>,
+    #[prost(message, repeated, tag = "13")]
+    pub external_data: Vec<StringStringEntryProto>,
+    #[prost(int32, tag = "14")]
+    pub data_location: i32,
+}
+
+#[derive(Clone, PartialEq, Message)]
+pub struct StringStringEntryProto {
+    #[prost(string, tag = "1")]
+    pub key: String,
+    #[prost(string, tag = "2")]
+    pub value: String,
 }
 
 #[derive(Clone, PartialEq, Message)]
@@ -115,8 +129,11 @@ pub struct AttributeProto {
 }
 
 impl TensorProto {
-    /// Extract float32 data from either `float_data` or `raw_data`.
-    pub fn to_f32_vec(&self) -> Vec<f32> {
+    /// Extract float32 data from `float_data`, `raw_data`, or external data files.
+    ///
+    /// `onnx_dir` is the directory containing the `.onnx` file, used to resolve
+    /// relative paths for external tensor data.
+    pub fn to_f32_vec(&self, onnx_dir: &Path) -> Vec<f32> {
         if !self.float_data.is_empty() {
             return self.float_data.clone();
         }
@@ -127,6 +144,43 @@ impl TensorProto {
                 .map(|c| f32::from_le_bytes(c.try_into().unwrap()))
                 .collect();
         }
+        // data_location == 1 means EXTERNAL
+        if self.data_location == 1 {
+            return self.load_external_data(onnx_dir);
+        }
         Vec::new()
+    }
+
+    fn load_external_data(&self, onnx_dir: &Path) -> Vec<f32> {
+        let mut location = None;
+        let mut offset: usize = 0;
+        let mut length: Option<usize> = None;
+
+        for entry in &self.external_data {
+            match entry.key.as_str() {
+                "location" => location = Some(entry.value.clone()),
+                "offset" => offset = entry.value.parse().unwrap_or(0),
+                "length" => length = entry.value.parse().ok(),
+                _ => {}
+            }
+        }
+
+        let Some(loc) = location else {
+            return Vec::new();
+        };
+
+        let path = onnx_dir.join(&loc);
+        let file_bytes = match std::fs::read(&path) {
+            Ok(b) => b,
+            Err(_) => return Vec::new(),
+        };
+
+        let end = length.map_or(file_bytes.len(), |l| offset + l);
+        let slice = &file_bytes[offset..end.min(file_bytes.len())];
+
+        slice
+            .chunks_exact(4)
+            .map(|c| f32::from_le_bytes(c.try_into().unwrap()))
+            .collect()
     }
 }

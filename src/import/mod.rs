@@ -87,19 +87,156 @@ pub fn import_onnx(
         def: format!("Input(shape: [{}])", input_shape.join(", ")),
     });
 
+    // Resolve the directory containing the ONNX file (for external data)
+    let onnx_dir = onnx_path
+        .parent()
+        .unwrap_or(Path::new("."))
+        .to_path_buf();
+
     // Create weights dir
     fs::create_dir_all(weights_dir)?;
 
     let mut layer_counter: HashMap<String, usize> = HashMap::new();
 
+    // Track ONNX output names that come from Flatten nodes and the CHW shape
+    // before Flatten (needed for CHW→HWC weight permutation).
+    let mut flatten_shapes: HashMap<String, (usize, usize, usize)> = HashMap::new();
+
+    // Build a map of ONNX output name → tensor shape from initializers and graph
+    // value_info, so we can infer the pre-Flatten shape.
+    let mut tensor_shapes: HashMap<String, Vec<i64>> = HashMap::new();
+    // Seed from graph inputs
+    for inp in &graph.input {
+        if let Some(tp) = &inp.r#type
+            && let Some(tt) = &tp.tensor_type
+            && let Some(shape) = &tt.shape
+        {
+            let dims: Vec<i64> = shape.dim.iter().map(|d| d.dim_value).collect();
+            tensor_shapes.insert(inp.name.clone(), dims);
+        }
+    }
+
+    // First pass: propagate shapes and identify Flatten→Gemm boundaries
     for node in &graph.node {
-        let (layer_id, layer_def, weight_info) = map_node(node, &initializers, &mut layer_counter)?;
+        match node.op_type.as_str() {
+            "Flatten" => {
+                if let Some(inp_name) = node.input.first()
+                    && let Some(in_dims) = tensor_shapes.get(inp_name.as_str()).cloned()
+                    && in_dims.len() == 4
+                {
+                    // ONNX shape is [N, C, H, W]
+                    let (c, h, w) = (in_dims[1] as usize, in_dims[2] as usize, in_dims[3] as usize);
+                    for out in &node.output {
+                        flatten_shapes.insert(out.clone(), (c, h, w));
+                        tensor_shapes.insert(out.clone(), vec![in_dims[0], (c * h * w) as i64]);
+                    }
+                }
+            }
+            "Conv" => {
+                // Propagate output shape: [N, filters, OH, OW]
+                if let Some(w_name) = node.input.get(1)
+                    && let Some(tensor) = initializers.get(w_name.as_str())
+                    && let Some(inp_name) = node.input.first()
+                    && let Some(in_dims) = tensor_shapes.get(inp_name.as_str()).cloned()
+                    && in_dims.len() == 4
+                {
+                    let filters = tensor.dims[0];
+                    let kh = tensor.dims[2];
+                    let kw = tensor.dims[3];
+                    let mut stride: i64 = 1;
+                    let mut pad_h: i64 = 0;
+                    let mut pad_w: i64 = 0;
+                    for attr in &node.attribute {
+                        match attr.name.as_str() {
+                            "strides" => {
+                                if let Some(&s) = attr.ints.first() {
+                                    stride = s;
+                                }
+                            }
+                            "pads" => {
+                                if attr.ints.len() >= 2 {
+                                    pad_h = attr.ints[0];
+                                    pad_w = attr.ints[1];
+                                }
+                            }
+                            _ => {}
+                        }
+                    }
+                    let oh = (in_dims[2] + 2 * pad_h - kh) / stride + 1;
+                    let ow = (in_dims[3] + 2 * pad_w - kw) / stride + 1;
+                    for out in &node.output {
+                        tensor_shapes.insert(out.clone(), vec![in_dims[0], filters, oh, ow]);
+                    }
+                }
+            }
+            "MaxPool" | "AveragePool" => {
+                if let Some(inp_name) = node.input.first()
+                    && let Some(in_dims) = tensor_shapes.get(inp_name.as_str()).cloned()
+                    && in_dims.len() == 4
+                {
+                    let mut kernel: i64 = 2;
+                    let mut stride: i64 = 2;
+                    let mut pad_h: i64 = 0;
+                    let mut pad_w: i64 = 0;
+                    for attr in &node.attribute {
+                        match attr.name.as_str() {
+                            "kernel_shape" => {
+                                if let Some(&k) = attr.ints.first() {
+                                    kernel = k;
+                                }
+                            }
+                            "strides" => {
+                                if let Some(&s) = attr.ints.first() {
+                                    stride = s;
+                                }
+                            }
+                            "pads" => {
+                                if attr.ints.len() >= 2 {
+                                    pad_h = attr.ints[0];
+                                    pad_w = attr.ints[1];
+                                }
+                            }
+                            _ => {}
+                        }
+                    }
+                    let oh = (in_dims[2] + 2 * pad_h - kernel) / stride + 1;
+                    let ow = (in_dims[3] + 2 * pad_w - kernel) / stride + 1;
+                    for out in &node.output {
+                        tensor_shapes.insert(out.clone(), vec![in_dims[0], in_dims[1], oh, ow]);
+                    }
+                }
+            }
+            "Relu" | "Sigmoid" | "BatchNormalization" | "Dropout" => {
+                // Shape-preserving ops: propagate input shape
+                if let Some(inp_name) = node.input.first()
+                    && let Some(dims) = tensor_shapes.get(inp_name.as_str()).cloned()
+                {
+                    for out in &node.output {
+                        tensor_shapes.insert(out.clone(), dims.clone());
+                    }
+                }
+            }
+            _ => {}
+        }
+    }
+
+    for node in &graph.node {
+        let (layer_id, layer_def, weight_info) =
+            map_node(node, &initializers, &mut layer_counter, &flatten_shapes)?;
 
         if let Some(def) = layer_def {
             // Write weights
             for wi in &weight_info {
                 let tensor = initializers.get(wi.initializer_name.as_str()).unwrap();
-                let data = tensor.to_f32_vec();
+                let data = tensor.to_f32_vec(&onnx_dir);
+                if data.is_empty() {
+                    return Err(ImportError {
+                        message: format!(
+                            "tensor '{}' has no data (external data not found?)",
+                            wi.initializer_name
+                        ),
+                    });
+                }
                 let dims: Vec<u64> = tensor.dims.iter().map(|&d| d as u64).collect();
                 let path = weights_dir.join(format!("{}.{}.npy", layer_id, wi.param_name));
                 if wi.transpose && dims.len() == 2 {
@@ -111,7 +248,15 @@ pub fn import_onnx(
                             transposed[c * rows + r] = data[r * cols + c];
                         }
                     }
-                    write_weight_npy(&path, &[dims[1], dims[0]], &transposed)?;
+                    let final_data = if let Some((ch, h, w)) = wi.chw_to_hwc {
+                        permute_dense_weight_chw_to_hwc(&transposed, ch, h, w, rows)
+                    } else {
+                        transposed
+                    };
+                    write_weight_npy(&path, &[dims[1], dims[0]], &final_data)?;
+                } else if let Some((ch, h, w)) = wi.chw_to_hwc {
+                    let permuted = permute_dense_weight_chw_to_hwc(&data, ch, h, w, dims[1] as usize);
+                    write_weight_npy(&path, &dims, &permuted)?;
                 } else {
                     write_weight_npy(&path, &dims, &data)?;
                 }
@@ -232,12 +377,16 @@ struct WeightRef {
     initializer_name: String,
     param_name: String,
     transpose: bool,
+    /// When set, the Dense weight rows are permuted from CHW to HWC flatten order.
+    /// Contains (channels, height, width) of the pre-Flatten activation.
+    chw_to_hwc: Option<(usize, usize, usize)>,
 }
 
 fn map_node(
     node: &NodeProto,
     initializers: &HashMap<&str, &TensorProto>,
     counter: &mut HashMap<String, usize>,
+    flatten_shapes: &HashMap<String, (usize, usize, usize)>,
 ) -> Result<(String, Option<String>, Vec<WeightRef>), ImportError> {
     let op = node.op_type.as_str();
     let layer_id = make_layer_id(node, op, counter);
@@ -253,6 +402,12 @@ fn map_node(
                 .find(|a| a.name == "transB")
                 .map(|a| a.i)
                 .unwrap_or(0);
+            // Detect if this Gemm follows a Flatten with a known CHW shape
+            let chw_permute = node
+                .input
+                .first()
+                .and_then(|inp| flatten_shapes.get(inp.as_str()))
+                .copied();
             // Weight is typically the second input
             if let Some(w_name) = node.input.get(1)
                 && let Some(tensor) = initializers.get(w_name.as_str())
@@ -268,6 +423,7 @@ fn map_node(
                     initializer_name: w_name.clone(),
                     param_name: "weight".to_string(),
                     transpose: trans_b != 0,
+                    chw_to_hwc: chw_permute,
                 });
             }
             if let Some(b_name) = node.input.get(2)
@@ -277,6 +433,7 @@ fn map_node(
                     initializer_name: b_name.clone(),
                     param_name: "bias".to_string(),
                     transpose: false,
+                    chw_to_hwc: None,
                 });
             }
             Ok((layer_id, Some(format!("Dense(units: {units})")), weights))
@@ -299,6 +456,7 @@ fn map_node(
                     initializer_name: w_name.clone(),
                     param_name: "weight".to_string(),
                     transpose: false,
+                    chw_to_hwc: None,
                 });
             }
             if let Some(b_name) = node.input.get(2)
@@ -308,6 +466,7 @@ fn map_node(
                     initializer_name: b_name.clone(),
                     param_name: "bias".to_string(),
                     transpose: false,
+                    chw_to_hwc: None,
                 });
             }
 
@@ -380,6 +539,7 @@ fn map_node(
                         initializer_name: inp_name.clone(),
                         param_name: pname.to_string(),
                         transpose: false,
+                        chw_to_hwc: None,
                     });
                 }
             }
@@ -529,6 +689,46 @@ fn pathdiff(output_path: &Path, weights_dir: &Path) -> String {
         .collect();
     rel.push_str(&tail.join("/"));
     rel
+}
+
+/// Permute columns of a Dense weight matrix from CHW flatten order to HWC flatten order.
+///
+/// In CHW order, the flattened index for (c, h, w) is `c * H * W + h * W + w`.
+/// In HWC order, the flattened index for (h, w, c) is `(h * W + w) * C + c`.
+///
+/// The weight matrix has shape `[in_features, out_units]` (after transpose).
+/// We permute the rows (input dimension) so that position `hwc_idx` gets the
+/// value from position `chw_idx`.
+fn permute_dense_weight_chw_to_hwc(
+    data: &[f32],
+    channels: usize,
+    height: usize,
+    width: usize,
+    out_units: usize,
+) -> Vec<f32> {
+    let in_features = channels * height * width;
+    let mut permuted = vec![0.0f32; data.len()];
+
+    for c in 0..channels {
+        for h in 0..height {
+            for w in 0..width {
+                let chw_idx = c * height * width + h * width + w;
+                let hwc_idx = (h * width + w) * channels + c;
+                // Copy the entire row (all output units) for this input feature
+                let src_offset = chw_idx * out_units;
+                let dst_offset = hwc_idx * out_units;
+                permuted[dst_offset..dst_offset + out_units]
+                    .copy_from_slice(&data[src_offset..src_offset + out_units]);
+            }
+        }
+    }
+
+    // Copy any remaining data beyond the permuted region (shouldn't happen, but safe)
+    if data.len() > in_features * out_units {
+        permuted[in_features * out_units..].copy_from_slice(&data[in_features * out_units..]);
+    }
+
+    permuted
 }
 
 fn write_weight_npy(path: &Path, shape: &[u64], data: &[f32]) -> Result<(), ImportError> {
