@@ -141,7 +141,11 @@ fn compute_output_shape(
             if inputs.len() < 2 {
                 return Err(ShapeError {
                     code: "E004",
-                    message: format!("{} `{}` requires at least 2 inputs", layer.kind.type_name(), layer.id),
+                    message: format!(
+                        "{} `{}` requires at least 2 inputs",
+                        layer.kind.type_name(),
+                        layer.id
+                    ),
                 });
             }
             let first = inputs[0];
@@ -151,7 +155,11 @@ fn compute_output_shape(
                         code: "E004",
                         message: format!(
                             "shape mismatch in {} `{}`: input 0 has shape {:?}, input {} has shape {:?}",
-                            layer.kind.type_name(), layer.id, first, i, shape
+                            layer.kind.type_name(),
+                            layer.id,
+                            first,
+                            i,
+                            shape
                         ),
                     });
                 }

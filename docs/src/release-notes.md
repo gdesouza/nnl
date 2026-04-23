@@ -1,5 +1,18 @@
 # Release Notes
 
+## [0.5.0] — 2026-04-23
+
+### Added
+
+- **New layers: GlobalAvgPool2D, ReLU6, LeakyReLU, SiLU, Mul** — six new layer types across all pipeline stages (lexer, parser, IR, shape inference, codegen, ONNX import), unlocking ResNet-18, MobileNetV1/V2, and EfficientNet model families.
+- **Grouped / depthwise Conv2D** — `Conv2D` now accepts a `groups` parameter (default 1) for grouped convolution, including depthwise separable convolution (`groups == in_channels`). ONNX `Conv` `group` attribute is imported automatically.
+- **ONNX external tensor data support** — `nnc import` can now load weights stored as external data files (ONNX `data_location = EXTERNAL`) with offset/length support, fixing import failures for models exported with `torch.onnx.export(..., use_external_data_format=True)`.
+
+### Fixed
+
+- **CHW→HWC weight permutation at Flatten→Dense boundary** — `nnc import` now automatically detects the Flatten→Gemm pattern in ONNX graphs and permutes Dense weight matrix rows from PyTorch's CHW flatten order to nnc's HWC order, fixing incorrect inference results for all imported CNNs with Flatten→Dense transitions.
+- **ONNX import empty tensor error** — `nnc import` now produces a clear error message (`"tensor '...' has no data"`) instead of a cryptic npy shape mismatch when tensor data is missing.
+
 ## [0.4.0] — 2026-04-23
 
 ### Added

@@ -88,10 +88,7 @@ pub fn import_onnx(
     });
 
     // Resolve the directory containing the ONNX file (for external data)
-    let onnx_dir = onnx_path
-        .parent()
-        .unwrap_or(Path::new("."))
-        .to_path_buf();
+    let onnx_dir = onnx_path.parent().unwrap_or(Path::new(".")).to_path_buf();
 
     // Create weights dir
     fs::create_dir_all(weights_dir)?;
@@ -125,7 +122,11 @@ pub fn import_onnx(
                     && in_dims.len() == 4
                 {
                     // ONNX shape is [N, C, H, W]
-                    let (c, h, w) = (in_dims[1] as usize, in_dims[2] as usize, in_dims[3] as usize);
+                    let (c, h, w) = (
+                        in_dims[1] as usize,
+                        in_dims[2] as usize,
+                        in_dims[3] as usize,
+                    );
                     for out in &node.output {
                         flatten_shapes.insert(out.clone(), (c, h, w));
                         tensor_shapes.insert(out.clone(), vec![in_dims[0], (c * h * w) as i64]);
@@ -153,11 +154,9 @@ pub fn import_onnx(
                                     stride = s;
                                 }
                             }
-                            "pads" => {
-                                if attr.ints.len() >= 2 {
-                                    pad_h = attr.ints[0];
-                                    pad_w = attr.ints[1];
-                                }
+                            "pads" if attr.ints.len() >= 2 => {
+                                pad_h = attr.ints[0];
+                                pad_w = attr.ints[1];
                             }
                             _ => {}
                         }
@@ -190,11 +189,9 @@ pub fn import_onnx(
                                     stride = s;
                                 }
                             }
-                            "pads" => {
-                                if attr.ints.len() >= 2 {
-                                    pad_h = attr.ints[0];
-                                    pad_w = attr.ints[1];
-                                }
+                            "pads" if attr.ints.len() >= 2 => {
+                                pad_h = attr.ints[0];
+                                pad_w = attr.ints[1];
                             }
                             _ => {}
                         }
@@ -255,7 +252,8 @@ pub fn import_onnx(
                     };
                     write_weight_npy(&path, &[dims[1], dims[0]], &final_data)?;
                 } else if let Some((ch, h, w)) = wi.chw_to_hwc {
-                    let permuted = permute_dense_weight_chw_to_hwc(&data, ch, h, w, dims[1] as usize);
+                    let permuted =
+                        permute_dense_weight_chw_to_hwc(&data, ch, h, w, dims[1] as usize);
                     write_weight_npy(&path, &dims, &permuted)?;
                 } else {
                     write_weight_npy(&path, &dims, &data)?;

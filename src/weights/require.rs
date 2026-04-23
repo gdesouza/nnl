@@ -30,7 +30,10 @@ pub fn required_weights(model: &Model, shape_info: &ShapeInfo) -> Vec<RequiredWe
                 });
             }
             LayerKind::Conv2D {
-                filters, kernel, groups, ..
+                filters,
+                kernel,
+                groups,
+                ..
             } => {
                 let in_channels = input_shape.and_then(|s| s.last().copied()).unwrap_or(0);
                 let kh = kernel.height();
