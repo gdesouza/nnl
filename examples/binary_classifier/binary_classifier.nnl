@@ -1,0 +1,18 @@
+version 0.2;
+
+// Binary classifier MLP for tabular data
+// Dense layers with standalone ReLU and Sigmoid activations
+model binary_classifier {
+    config {
+        weights: "./weights";
+        io: "stdio";
+    }
+
+    layer input   = Input(shape: [16]);
+    layer fc1     = Dense(units: 64);
+    layer relu1   = ReLU();
+    layer fc2     = Dense(units: 32);
+    layer relu2   = ReLU();
+    layer fc3     = Dense(units: 1);
+    layer sigmoid = Sigmoid();
+}

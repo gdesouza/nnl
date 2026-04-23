@@ -169,6 +169,219 @@ nnc test examples/resnet_block/resnet_block.nnl \
     --expected examples/resnet_block/expected_output.npy
 ```
 
+## VGG Block (`examples/vgg_block/`)
+
+**Architecture:** `[32,32,3] → Conv2D(64)×2 → AvgPool2D(2) → Flatten → Dense(256, relu) → Dropout(0.5) → Dense(10, softmax)`
+
+A VGG-style CNN block for CIFAR-10 classification. Demonstrates stacked convolutions before pooling, `AvgPool2D`, and `Dropout`.
+
+### Model definition
+
+```
+version 0.2;
+
+// VGG-style CNN block for CIFAR-10 classification
+model vgg_block {
+    config {
+        precision: "float32";
+        weights: "./weights";
+        target: "generic";
+        io: "stdio";
+    }
+
+    layer input   = Input(shape: [32, 32, 3]);
+    layer conv1   = Conv2D(filters: 64, kernel: 3, stride: 1, padding: "same");
+    layer conv2   = Conv2D(filters: 64, kernel: 3, stride: 1, padding: "same");
+    layer pool    = AvgPool2D(kernel: 2);
+    layer flatten = Flatten();
+    layer fc1     = Dense(units: 256, activation: "relu");
+    layer drop    = Dropout(rate: 0.5);
+    layer output  = Dense(units: 10, activation: "softmax");
+}
+```
+
+### Key features
+
+- **AvgPool2D:** Average pooling instead of max pooling — useful for smoother feature maps.
+- **Dropout:** A no-op during inference, but preserved from training frameworks so the model definition stays faithful to the original.
+- **Stacked Conv2D:** Two 3×3 convolutions before pooling gives a 5×5 effective receptive field with fewer parameters.
+
+### Compile and test
+
+```sh
+nnc compile examples/vgg_block/vgg_block.nnl --emit exe -o vgg_block
+
+nnc test examples/vgg_block/vgg_block.nnl \
+    --input examples/vgg_block/test_input.npy \
+    --expected examples/vgg_block/expected_output.npy
+```
+
+## Binary Classifier (`examples/binary_classifier/`)
+
+**Architecture:** `[16] → Dense(64) → ReLU → Dense(32) → ReLU → Dense(1) → Sigmoid`
+
+A binary classifier MLP using standalone activation layers instead of inline activations on Dense.
+
+### Model definition
+
+```
+version 0.2;
+
+// Binary classifier MLP for tabular data
+// Dense layers with standalone ReLU and Sigmoid activations
+model binary_classifier {
+    config {
+        weights: "./weights";
+        io: "stdio";
+    }
+
+    layer input   = Input(shape: [16]);
+    layer fc1     = Dense(units: 64);
+    layer relu1   = ReLU();
+    layer fc2     = Dense(units: 32);
+    layer relu2   = ReLU();
+    layer fc3     = Dense(units: 1);
+    layer sigmoid = Sigmoid();
+}
+```
+
+### Key features
+
+- **Standalone activations:** `ReLU()` and `Sigmoid()` as separate layers rather than Dense parameters. This matches the graph structure of many ONNX exports.
+- **Sigmoid output:** Produces a single probability value in `[0, 1]` for binary classification.
+
+### Compile and test
+
+```sh
+nnc compile examples/binary_classifier/binary_classifier.nnl --emit exe -o binary_classifier
+
+nnc test examples/binary_classifier/binary_classifier.nnl \
+    --input examples/binary_classifier/test_input.npy \
+    --expected examples/binary_classifier/expected_output.npy
+```
+
+## Inception Module (`examples/inception_module/`)
+
+**Architecture:** Three parallel Conv2D branches (1×1, 3×3, 5×5) merged via `Concat`.
+
+A simplified Inception-style module demonstrating parallel branches and channel-wise concatenation.
+
+### Model definition
+
+```
+version 0.2;
+
+// Simplified Inception module: three parallel convolution branches
+// (1x1, 3x3, 5x5) concatenated along the channel axis.
+
+model inception_module {
+    config {
+        precision: "float32";
+        weights: "./weights";
+        target: "generic";
+        io: "stdio";
+    }
+
+    layer input   = Input(shape: [32, 32, 64]);
+    layer conv1x1 = Conv2D(filters: 32, kernel: 1, stride: 1, padding: "same");
+    layer conv3x3 = Conv2D(filters: 32, kernel: 3, stride: 1, padding: "same");
+    layer conv5x5 = Conv2D(filters: 32, kernel: 5, stride: 1, padding: "same");
+    layer concat  = Concat();
+    layer bn      = BatchNorm();
+    layer relu    = ReLU();
+
+    connections {
+        input -> conv1x1;
+        input -> conv3x3;
+        input -> conv5x5;
+        [conv1x1, conv3x3, conv5x5] -> concat;
+        concat -> bn;
+        bn -> relu;
+    }
+}
+```
+
+### Connection graph
+
+```
+           ┌→ conv1x1 (32 filters) ──┐
+input ────→├→ conv3x3 (32 filters) ──├→ Concat → BatchNorm → ReLU
+           └→ conv5x5 (32 filters) ──┘
+```
+
+### Key features
+
+- **Concat:** Channel-wise concatenation of three branches (32+32+32 = 96 output channels).
+- **Multi-input bracket syntax:** `[conv1x1, conv3x3, conv5x5] -> concat;` feeds all three branches into the Concat layer.
+- **Parallel branches:** The `connections` block wires `input` to all three convolutions independently.
+
+### Compile and test
+
+```sh
+nnc compile examples/inception_module/inception_module.nnl --emit exe -o inception_module
+
+nnc test examples/inception_module/inception_module.nnl \
+    --input examples/inception_module/test_input.npy \
+    --expected examples/inception_module/expected_output.npy
+```
+
+## Feature Extractor (`examples/feature_extractor/`)
+
+**Architecture:** `[224,224,3] → Conv2D(32,7) → BN → ReLU → MaxPool → Conv2D(64,3) → BN → ReLU → MaxPool → Flatten → Dense(256) → ReLU → Dense(10) → Softmax`
+
+A CNN feature extractor with ImageNet-style preprocessing and standalone `Softmax`.
+
+### Model definition
+
+```
+version 0.2;
+
+// CNN feature extractor with ImageNet-style preprocessing and standalone Softmax
+model feature_extractor {
+    config {
+        precision: "float32";
+        weights: "./weights";
+        target: "avx2";
+        io: "stdio";
+        preprocess: "standardize";
+        preprocess_mean: [0.485, 0.456, 0.406];
+        preprocess_std: [0.229, 0.224, 0.225];
+    }
+
+    layer input   = Input(shape: [224, 224, 3]);
+    layer conv1   = Conv2D(filters: 32, kernel: 7, stride: 2, padding: "valid");
+    layer bn1     = BatchNorm();
+    layer relu1   = ReLU();
+    layer pool1   = MaxPool2D(kernel: 3, stride: 2);
+    layer conv2   = Conv2D(filters: 64, kernel: 3, padding: "valid");
+    layer bn2     = BatchNorm();
+    layer relu2   = ReLU();
+    layer pool2   = MaxPool2D(kernel: 2);
+    layer flatten = Flatten();
+    layer fc1     = Dense(units: 256);
+    layer relu3   = ReLU();
+    layer fc2     = Dense(units: 10);
+    layer output  = Softmax();
+}
+```
+
+### Key features
+
+- **Standalone Softmax:** Used as a separate layer rather than a Dense activation parameter.
+- **ImageNet preprocessing:** `preprocess: "standardize"` with per-channel mean and std — the generated binary applies `(x - mean) / std` per channel automatically.
+- **Strided convolution:** `Conv2D(kernel: 7, stride: 2)` for aggressive spatial downsampling.
+- **MaxPool2D with stride:** `MaxPool2D(kernel: 3, stride: 2)` allows kernel/stride to differ.
+
+### Compile and test
+
+```sh
+nnc compile examples/feature_extractor/feature_extractor.nnl --emit exe -o feature_extractor
+
+nnc test examples/feature_extractor/feature_extractor.nnl \
+    --input examples/feature_extractor/test_input.npy \
+    --expected examples/feature_extractor/expected_output.npy
+```
+
 ## ONNX Import (`examples/import_test/`)
 
 Demonstrates the round-trip workflow: generate an ONNX model in Python, import it into NNL, compile, and verify.

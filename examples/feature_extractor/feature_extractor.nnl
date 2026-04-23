@@ -1,0 +1,29 @@
+version 0.2;
+
+// CNN feature extractor with ImageNet-style preprocessing and standalone Softmax
+model feature_extractor {
+    config {
+        precision: "float32";
+        weights: "./weights";
+        target: "avx2";
+        io: "stdio";
+        preprocess: "standardize";
+        preprocess_mean: [0.485, 0.456, 0.406];
+        preprocess_std: [0.229, 0.224, 0.225];
+    }
+
+    layer input   = Input(shape: [224, 224, 3]);
+    layer conv1   = Conv2D(filters: 32, kernel: 7, stride: 2, padding: "valid");
+    layer bn1     = BatchNorm();
+    layer relu1   = ReLU();
+    layer pool1   = MaxPool2D(kernel: 3, stride: 2);
+    layer conv2   = Conv2D(filters: 64, kernel: 3, padding: "valid");
+    layer bn2     = BatchNorm();
+    layer relu2   = ReLU();
+    layer pool2   = MaxPool2D(kernel: 2);
+    layer flatten = Flatten();
+    layer fc1     = Dense(units: 256);
+    layer relu3   = ReLU();
+    layer fc2     = Dense(units: 10);
+    layer output  = Softmax();
+}

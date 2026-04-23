@@ -1,0 +1,30 @@
+version 0.2;
+
+// Simplified Inception module: three parallel convolution branches
+// (1x1, 3x3, 5x5) concatenated along the channel axis.
+
+model inception_module {
+    config {
+        precision: "float32";
+        weights: "./weights";
+        target: "generic";
+        io: "stdio";
+    }
+
+    layer input   = Input(shape: [32, 32, 64]);
+    layer conv1x1 = Conv2D(filters: 32, kernel: 1, stride: 1, padding: "same");
+    layer conv3x3 = Conv2D(filters: 32, kernel: 3, stride: 1, padding: "same");
+    layer conv5x5 = Conv2D(filters: 32, kernel: 5, stride: 1, padding: "same");
+    layer concat  = Concat();
+    layer bn      = BatchNorm();
+    layer relu    = ReLU();
+
+    connections {
+        input -> conv1x1;
+        input -> conv3x3;
+        input -> conv5x5;
+        [conv1x1, conv3x3, conv5x5] -> concat;
+        concat -> bn;
+        bn -> relu;
+    }
+}
