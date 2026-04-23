@@ -486,6 +486,114 @@ model resblock {{
 }
 
 #[test]
+fn compile_and_run_concat_channel_axis() {
+    // Regression test: Concat along channel axis (axis=-1) on 3D HWC tensors.
+    // Previously used flat memcpy which only worked for 1D concat.
+    let tmp = tempfile::tempdir().unwrap();
+    let weights_dir = tmp.path().join("weights");
+    std::fs::create_dir_all(&weights_dir).unwrap();
+
+    // Model: Input [4,4,1] -> two Conv2D(filters:2, kernel:1, same) -> Concat(axis:-1) -> Flatten -> Dense(1)
+    // Each conv output: [4,4,2], concat -> [4,4,4], flatten -> [64], dense -> [1]
+    let ic = 1;
+    let f = 2;
+
+    // conv1: weights [2,1,1,1], all 1.0; bias [2] = [0, 0]
+    write_npy_f32(
+        &weights_dir.join("conv1.weight.npy"),
+        &[f, ic, 1, 1],
+        &vec![1.0; f * ic],
+    );
+    write_npy_f32(&weights_dir.join("conv1.bias.npy"), &[f], &[0.0; 2]);
+
+    // conv2: weights [2,1,1,1], all 2.0; bias [2] = [0, 0]
+    write_npy_f32(
+        &weights_dir.join("conv2.weight.npy"),
+        &[f, ic, 1, 1],
+        &vec![2.0; f * ic],
+    );
+    write_npy_f32(&weights_dir.join("conv2.bias.npy"), &[f], &[0.0; 2]);
+
+    // fc: weights [64, 1], all 1.0; bias [1] = [0]
+    write_npy_f32(
+        &weights_dir.join("fc.weight.npy"),
+        &[64, 1],
+        &vec![1.0; 64],
+    );
+    write_npy_f32(&weights_dir.join("fc.bias.npy"), &[1], &[0.0]);
+
+    let model_path = tmp.path().join("concat_test.nnl");
+    let model_src = format!(
+        r#"version 0.2;
+model concat_test {{
+    config {{ weights: "{}"; io: "stdio"; }}
+    layer input   = Input(shape: [4, 4, 1]);
+    layer conv1   = Conv2D(filters: 2, kernel: 1, stride: 1, padding: "same");
+    layer conv2   = Conv2D(filters: 2, kernel: 1, stride: 1, padding: "same");
+    layer cat     = Concat(axis: 2);
+    layer flatten = Flatten();
+    layer fc      = Dense(units: 1);
+    connections {{
+        input -> conv1;
+        input -> conv2;
+        [conv1, conv2] -> cat;
+        cat -> flatten;
+        flatten -> fc;
+    }}
+}}
+"#,
+        weights_dir.display()
+    );
+    std::fs::write(&model_path, &model_src).unwrap();
+
+    let exe_path = tmp.path().join("concat_test");
+    nnc()
+        .args([
+            "compile",
+            model_path.to_str().unwrap(),
+            "--emit",
+            "exe",
+            "-o",
+            exe_path.to_str().unwrap(),
+        ])
+        .assert()
+        .success();
+
+    // Input: 4x4x1 = 16 floats, all 1.0
+    // conv1(w=1.0): each pixel -> [1.0, 1.0] -> [4,4,2]
+    // conv2(w=2.0): each pixel -> [2.0, 2.0] -> [4,4,2]
+    // Concat(axis=-1): [4,4,4] -> each pixel has [1.0, 1.0, 2.0, 2.0]
+    // Flatten: [64] -> 16 pixels * 4 channels = 16 * (1+1+2+2) = 96
+    // Dense(1): sum all = 96.0
+    let input_bytes: Vec<u8> = [1.0_f32; 16].iter().flat_map(|v| v.to_ne_bytes()).collect();
+
+    let output = Command::new(&exe_path)
+        .stdin(std::process::Stdio::piped())
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::piped())
+        .spawn()
+        .and_then(|mut child| {
+            use std::io::Write;
+            child.stdin.take().unwrap().write_all(&input_bytes)?;
+            child.wait_with_output()
+        })
+        .expect("failed to run concat_test binary");
+
+    assert!(
+        output.status.success(),
+        "concat_test binary failed: {:?}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert_eq!(output.stdout.len(), 4, "expected 1 float32 (4 bytes)");
+
+    let result = f32::from_ne_bytes(output.stdout[..4].try_into().unwrap());
+    assert!(
+        (result - 96.0).abs() < 1e-3,
+        "expected ~96.0 for channel-axis concat, got {result}"
+    );
+}
+
+#[test]
 fn compile_and_run_conv2d_rectangular_kernel() {
     // Regression test: rectangular kernels (kh != kw) previously produced wrong
     // weight indices because the C loop variable `kh` shadowed the constant.

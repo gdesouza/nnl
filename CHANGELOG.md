@@ -13,6 +13,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- **Concat codegen for multi-dimensional tensors** — fixed incorrect flat `memcpy` in Concat codegen that produced wrong results when concatenating 3D (HWC) tensors along the channel axis. Now generates proper strided copies for arbitrary concat axes.
 - **ONNX import protobuf decode failure** — fixed incorrect field tag numbers in `AttributeProto` that caused all ONNX imports to fail with a protobuf wire type error. Added missing `floats` field (tag 7).
 - **Unsupported precision silently accepted** — `precision: "int8"` and `precision: "float64"` now produce a compile error instead of silently generating incorrect float32 code.
 - **Website hero demo** — the output example now shows the realistic workflow (raw bytes piped through Python) instead of implying the binary outputs formatted text.

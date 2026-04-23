@@ -261,19 +261,56 @@ pub fn emit_source(
                 }
             }
 
-            LayerKind::Concat { .. } => {
+            LayerKind::Concat { axis } => {
                 let input_ids = get_input_layer_ids(layer_id, model);
-                let mut offset = 0usize;
+                let ndim = out_shape.len();
+                let axis_norm = if *axis >= 0 {
+                    *axis as usize
+                } else {
+                    (ndim as i64 + *axis) as usize
+                };
+
+                // Compute strides for the output shape
+                let mut out_strides = vec![1usize; ndim];
+                for d in (0..ndim - 1).rev() {
+                    out_strides[d] = out_strides[d + 1] * out_shape[d + 1];
+                }
+
+                // Number of iterations over outer dims (before axis)
+                let outer_count: usize = out_shape[..axis_norm].iter().product::<usize>().max(1);
+                // Number of iterations over inner dims (after axis)
+                let inner_count: usize = out_shape[axis_norm + 1..].iter().product::<usize>().max(1);
+                let out_axis_stride = out_strides[axis_norm]; // == inner_count
+
+                let mut axis_offset = 0usize;
                 for cat_id in &input_ids {
                     let cat_shape = shape_info.shapes.get(*cat_id).unwrap();
-                    let cat_elems = shape_elems(cat_shape) * batch;
+                    let cat_axis_dim = cat_shape[axis_norm];
                     let cat_src = format!("nnc_buf_{}", buf_plan.slot[*cat_id]);
-                    writeln!(
-                        c,
-                        "    memcpy({dst} + {offset}, {cat_src}, {cat_elems} * sizeof(float));"
-                    )
-                    .unwrap();
-                    offset += cat_elems;
+
+                    // Copy slice: for each outer position, memcpy the
+                    // contiguous [cat_axis_dim * inner_count] block.
+                    let copy_size = cat_axis_dim * inner_count;
+                    let src_row_stride = copy_size; // contiguous in source
+                    let dst_row_stride = out_shape[axis_norm] * inner_count;
+
+                    if ndim == 1 || (axis_norm == ndim - 1 && outer_count == 1) {
+                        // Simple flat case — single memcpy
+                        writeln!(
+                            c,
+                            "    memcpy({dst} + {axis_offset}, {cat_src}, {copy_size} * sizeof(float));"
+                        )
+                        .unwrap();
+                    } else {
+                        writeln!(c, "    for (int oc = 0; oc < {outer_count}; oc++) {{").unwrap();
+                        writeln!(
+                            c,
+                            "        memcpy({dst} + oc * {dst_row_stride} + {axis_offset} * {out_axis_stride}, {cat_src} + oc * {src_row_stride}, {copy_size} * sizeof(float));"
+                        )
+                        .unwrap();
+                        writeln!(c, "    }}").unwrap();
+                    }
+                    axis_offset += cat_axis_dim;
                 }
             }
 
