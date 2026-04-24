@@ -690,6 +690,40 @@ fn map_node(
         }
         "Mul" => Ok((layer_id, Some("Mul()".to_string()), Vec::new())),
         "HardSwish" => Ok((layer_id, Some("Hardswish()".to_string()), Vec::new())),
+        "LayerNormalization" => {
+            let epsilon = node
+                .attribute
+                .iter()
+                .find(|a| a.name == "epsilon")
+                .map(|a| a.f as f64)
+                .unwrap_or(1e-5);
+            let mut weights = Vec::new();
+            if let Some(s_name) = node.input.get(1)
+                && initializers.contains_key(s_name.as_str())
+            {
+                weights.push(WeightRef {
+                    initializer_name: s_name.clone(),
+                    param_name: "scale".to_string(),
+                    transpose: false,
+                    chw_to_hwc: None,
+                });
+            }
+            if let Some(b_name) = node.input.get(2)
+                && initializers.contains_key(b_name.as_str())
+            {
+                weights.push(WeightRef {
+                    initializer_name: b_name.clone(),
+                    param_name: "bias".to_string(),
+                    transpose: false,
+                    chw_to_hwc: None,
+                });
+            }
+            Ok((
+                layer_id,
+                Some(format!("LayerNorm(epsilon: {epsilon})")),
+                weights,
+            ))
+        }
         "Upsample" | "Resize" => {
             let mut scale = 2usize;
             // Try scales from attribute (Upsample opset < 10)
@@ -739,6 +773,7 @@ fn make_layer_id(node: &NodeProto, op: &str, counter: &mut HashMap<String, usize
         "Clip" => "relu6",
         "Mul" => "mul",
         "HardSwish" => "hardswish",
+        "LayerNormalization" => "ln",
         "Upsample" => "upsample",
         "Resize" => "resize",
         other => other,

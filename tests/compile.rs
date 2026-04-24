@@ -978,3 +978,78 @@ model maxpool1d_test {{
         "expected ~15.0 for MaxPool1D, got {result}"
     );
 }
+
+#[test]
+fn compile_and_run_layernorm() {
+    let tmp = tempfile::tempdir().unwrap();
+    let weights_dir = tmp.path().join("weights");
+    std::fs::create_dir_all(&weights_dir).unwrap();
+
+    // Model: Input [4] -> LayerNorm -> Dense(1)
+    // LayerNorm normalizes over the last dim (4), then scale + bias
+    // scale = [1,1,1,1], bias = [0,0,0,0] → normalized values
+    write_npy_f32(&weights_dir.join("ln.scale.npy"), &[4], &[1.0; 4]);
+    write_npy_f32(&weights_dir.join("ln.bias.npy"), &[4], &[0.0; 4]);
+    write_npy_f32(&weights_dir.join("fc.weight.npy"), &[4, 1], &[1.0; 4]);
+    write_npy_f32(&weights_dir.join("fc.bias.npy"), &[1], &[0.0]);
+
+    let model_path = tmp.path().join("model.nnl");
+    let model_src = format!(
+        r#"version 0.2;
+model layernorm_test {{
+    config {{ weights: "{}"; io: "stdio"; }}
+    layer input = Input(shape: [4]);
+    layer ln    = LayerNorm();
+    layer fc    = Dense(units: 1);
+}}
+"#,
+        weights_dir.display()
+    );
+    std::fs::write(&model_path, &model_src).unwrap();
+
+    let exe_path = tmp.path().join("layernorm_test");
+    nnc()
+        .args([
+            "compile",
+            model_path.to_str().unwrap(),
+            "--emit",
+            "exe",
+            "-o",
+            exe_path.to_str().unwrap(),
+        ])
+        .assert()
+        .success();
+
+    // Input: [1, 2, 3, 4]
+    // mean = 2.5, var = 1.25, std = sqrt(1.25 + 1e-5)
+    // normalized: [(1-2.5)/std, (2-2.5)/std, (3-2.5)/std, (4-2.5)/std]
+    // With scale=1, bias=0, the sum of normalized values should be ~0.0
+    let input: Vec<f32> = vec![1.0, 2.0, 3.0, 4.0];
+    let input_bytes: Vec<u8> = input.iter().flat_map(|v| v.to_ne_bytes()).collect();
+
+    let output = Command::new(&exe_path)
+        .stdin(std::process::Stdio::piped())
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::piped())
+        .spawn()
+        .and_then(|mut child| {
+            use std::io::Write;
+            child.stdin.take().unwrap().write_all(&input_bytes)?;
+            child.wait_with_output()
+        })
+        .expect("failed to run layernorm_test binary");
+
+    assert!(
+        output.status.success(),
+        "layernorm_test failed: {:?}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert_eq!(output.stdout.len(), 4, "expected 1 float32 (4 bytes)");
+
+    // Dense sums the normalized values; with identity scale/bias, sum should be ~0
+    let result = f32::from_ne_bytes(output.stdout[..4].try_into().unwrap());
+    assert!(
+        result.abs() < 1e-4,
+        "expected ~0.0 for LayerNorm sum, got {result}"
+    );
+}

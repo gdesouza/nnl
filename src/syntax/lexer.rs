@@ -67,6 +67,8 @@ pub enum Token {
     Conv1D,
     #[token("MaxPool1D")]
     MaxPool1D,
+    #[token("LayerNorm")]
+    LayerNorm,
 
     // Literals
     #[regex(r"[0-9]+\.[0-9]+", |lex| lex.slice().parse::<f64>().ok())]
@@ -140,6 +142,7 @@ impl fmt::Display for Token {
             Token::Upsample => write!(f, "Upsample"),
             Token::Conv1D => write!(f, "Conv1D"),
             Token::MaxPool1D => write!(f, "MaxPool1D"),
+            Token::LayerNorm => write!(f, "LayerNorm"),
             Token::Float(v) => write!(f, "{v}"),
             Token::Integer(v) => write!(f, "{v}"),
             Token::String(v) => write!(f, "\"{v}\""),

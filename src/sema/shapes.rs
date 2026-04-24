@@ -130,6 +130,7 @@ fn compute_output_shape(
         | LayerKind::LeakyReLU { .. }
         | LayerKind::SiLU
         | LayerKind::Hardswish
+        | LayerKind::LayerNorm { .. }
         | LayerKind::Sigmoid
         | LayerKind::Softmax { .. } => {
             // Identity shape

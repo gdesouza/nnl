@@ -173,6 +173,9 @@ pub enum LayerKind {
         kernel: usize,
         stride: Option<usize>,
     },
+    LayerNorm {
+        epsilon: f64,
+    },
 }
 
 impl LayerKind {
@@ -200,6 +203,7 @@ impl LayerKind {
             LayerKind::Upsample { .. } => "Upsample",
             LayerKind::Conv1D { .. } => "Conv1D",
             LayerKind::MaxPool1D { .. } => "MaxPool1D",
+            LayerKind::LayerNorm { .. } => "LayerNorm",
         }
     }
 }

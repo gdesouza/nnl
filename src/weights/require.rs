@@ -65,6 +65,17 @@ pub fn required_weights(model: &Model, shape_info: &ShapeInfo) -> Vec<RequiredWe
                     expected_shape: vec![*filters],
                 });
             }
+            LayerKind::LayerNorm { .. } => {
+                let norm_size = input_shape.and_then(|s| s.last().copied()).unwrap_or(0);
+                required.push(RequiredWeight {
+                    name: format!("{}.scale", layer.id),
+                    expected_shape: vec![norm_size],
+                });
+                required.push(RequiredWeight {
+                    name: format!("{}.bias", layer.id),
+                    expected_shape: vec![norm_size],
+                });
+            }
             LayerKind::BatchNorm { .. } => {
                 let channels = input_shape.and_then(|s| s.last().copied()).unwrap_or(0);
                 for param in &["gamma", "beta", "running_mean", "running_var"] {

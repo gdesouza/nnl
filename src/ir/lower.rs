@@ -280,6 +280,10 @@ fn lower_layer(layer: &ast::LayerDecl) -> Result<Layer, LowerError> {
             let stride = get_optional_usize_param(&layer.params, "stride")?;
             LayerKind::MaxPool1D { kernel, stride }
         }
+        ast::LayerType::LayerNorm => {
+            let epsilon = get_optional_float_param(&layer.params, "epsilon")?.unwrap_or(1e-5);
+            LayerKind::LayerNorm { epsilon }
+        }
     };
 
     Ok(Layer {

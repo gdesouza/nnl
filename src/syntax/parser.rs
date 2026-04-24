@@ -315,6 +315,7 @@ impl<'a> Parser<'a> {
             Some(Token::Upsample) => LayerType::Upsample,
             Some(Token::Conv1D) => LayerType::Conv1D,
             Some(Token::MaxPool1D) => LayerType::MaxPool1D,
+            Some(Token::LayerNorm) => LayerType::LayerNorm,
             Some(other) => {
                 return Err(ParseError {
                     message: format!("expected layer type, got `{other}`"),

@@ -264,6 +264,40 @@ pub fn emit_source(
                 writeln!(c, "    }}").unwrap();
             }
 
+            LayerKind::LayerNorm { epsilon } => {
+                let src = src_buf(&buf_plan, layer_id, model);
+                let norm_size = *out_shape.last().unwrap_or(&out_elems);
+                let num_groups = out_elems / norm_size;
+                let scale_var = weight_var(&format!("{layer_id}.scale"));
+                let bias_var = weight_var(&format!("{layer_id}.bias"));
+
+                writeln!(c, "    for (int g = 0; g < {num_groups}; g++) {{").unwrap();
+                writeln!(c, "        float mean = 0.0f;").unwrap();
+                writeln!(c, "        for (int i = 0; i < {norm_size}; i++) {{").unwrap();
+                writeln!(c, "            mean += {src}[g * {norm_size} + i];").unwrap();
+                writeln!(c, "        }}").unwrap();
+                writeln!(c, "        mean /= {norm_size}.0f;").unwrap();
+                writeln!(c, "        float var = 0.0f;").unwrap();
+                writeln!(c, "        for (int i = 0; i < {norm_size}; i++) {{").unwrap();
+                writeln!(
+                    c,
+                    "            float d = {src}[g * {norm_size} + i] - mean;"
+                )
+                .unwrap();
+                writeln!(c, "            var += d * d;").unwrap();
+                writeln!(c, "        }}").unwrap();
+                writeln!(c, "        var /= {norm_size}.0f;").unwrap();
+                writeln!(
+                    c,
+                    "        float inv_std = 1.0f / sqrtf(var + {epsilon:.10}f);"
+                )
+                .unwrap();
+                writeln!(c, "        for (int i = 0; i < {norm_size}; i++) {{").unwrap();
+                writeln!(c, "            {dst}[g * {norm_size} + i] = ({src}[g * {norm_size} + i] - mean) * inv_std * {scale_var}[i] + {bias_var}[i];").unwrap();
+                writeln!(c, "        }}").unwrap();
+                writeln!(c, "    }}").unwrap();
+            }
+
             LayerKind::Sigmoid => {
                 let src = src_buf(&buf_plan, layer_id, model);
                 writeln!(c, "    for (int i = 0; i < {out_elems}; i++) {{").unwrap();

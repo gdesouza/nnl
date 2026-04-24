@@ -122,6 +122,7 @@ pub enum LayerType {
     Upsample,
     Conv1D,
     MaxPool1D,
+    LayerNorm,
 }
 
 impl std::fmt::Display for LayerType {
@@ -149,6 +150,7 @@ impl std::fmt::Display for LayerType {
             LayerType::Upsample => write!(f, "Upsample"),
             LayerType::Conv1D => write!(f, "Conv1D"),
             LayerType::MaxPool1D => write!(f, "MaxPool1D"),
+            LayerType::LayerNorm => write!(f, "LayerNorm"),
         }
     }
 }
