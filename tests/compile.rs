@@ -829,3 +829,152 @@ model upsample_test {{
         "expected ~40.0 for 2x upsample, got {result}"
     );
 }
+
+#[test]
+fn compile_and_run_conv1d() {
+    let tmp = tempfile::tempdir().unwrap();
+    let weights_dir = tmp.path().join("weights");
+    std::fs::create_dir_all(&weights_dir).unwrap();
+
+    // Model: Input [8,1] -> Conv1D(filters:1, kernel:3, valid) -> Flatten -> Dense(1)
+    // Conv1D output: [(8-3)/1+1, 1] = [6, 1]
+    // Flatten: [6], Dense(1): sum all
+
+    // conv.weight: [filters=1, in_ch=1, kernel=3] = 3 elements, all 1.0
+    write_npy_f32(&weights_dir.join("conv.weight.npy"), &[1, 1, 3], &[1.0; 3]);
+    write_npy_f32(&weights_dir.join("conv.bias.npy"), &[1], &[0.0]);
+    write_npy_f32(&weights_dir.join("fc.weight.npy"), &[6, 1], &[1.0; 6]);
+    write_npy_f32(&weights_dir.join("fc.bias.npy"), &[1], &[0.0]);
+
+    let model_path = tmp.path().join("model.nnl");
+    let model_src = format!(
+        r#"version 0.2;
+model conv1d_test {{
+    config {{ weights: "{}"; io: "stdio"; }}
+    layer input   = Input(shape: [8, 1]);
+    layer conv    = Conv1D(filters: 1, kernel: 3, stride: 1, padding: "valid");
+    layer flatten = Flatten();
+    layer fc      = Dense(units: 1);
+}}
+"#,
+        weights_dir.display()
+    );
+    std::fs::write(&model_path, &model_src).unwrap();
+
+    let exe_path = tmp.path().join("conv1d_test");
+    nnc()
+        .args([
+            "compile",
+            model_path.to_str().unwrap(),
+            "--emit",
+            "exe",
+            "-o",
+            exe_path.to_str().unwrap(),
+        ])
+        .assert()
+        .success();
+
+    // Input: [1,1,1,1,1,1,1,1] (8 values, all 1.0)
+    // Conv1D(kernel=3, valid): each output = sum of 3 ones = 3.0
+    // Output [6,1] = [3,3,3,3,3,3]
+    // Dense(1): sum = 18.0
+    let input: Vec<f32> = vec![1.0; 8];
+    let input_bytes: Vec<u8> = input.iter().flat_map(|v| v.to_ne_bytes()).collect();
+
+    let output = Command::new(&exe_path)
+        .stdin(std::process::Stdio::piped())
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::piped())
+        .spawn()
+        .and_then(|mut child| {
+            use std::io::Write;
+            child.stdin.take().unwrap().write_all(&input_bytes)?;
+            child.wait_with_output()
+        })
+        .expect("failed to run conv1d_test binary");
+
+    assert!(
+        output.status.success(),
+        "conv1d_test failed: {:?}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert_eq!(output.stdout.len(), 4, "expected 1 float32 (4 bytes)");
+
+    let result = f32::from_ne_bytes(output.stdout[..4].try_into().unwrap());
+    assert!(
+        (result - 18.0).abs() < 1e-3,
+        "expected ~18.0 for Conv1D, got {result}"
+    );
+}
+
+#[test]
+fn compile_and_run_maxpool1d() {
+    let tmp = tempfile::tempdir().unwrap();
+    let weights_dir = tmp.path().join("weights");
+    std::fs::create_dir_all(&weights_dir).unwrap();
+
+    // Model: Input [6,1] -> MaxPool1D(kernel:2) -> Flatten -> Dense(1)
+    // MaxPool1D output: [(6-2)/2+1, 1] = [3, 1]
+    // Flatten: [3], Dense(1): sum all
+    write_npy_f32(&weights_dir.join("fc.weight.npy"), &[3, 1], &[1.0; 3]);
+    write_npy_f32(&weights_dir.join("fc.bias.npy"), &[1], &[0.0]);
+
+    let model_path = tmp.path().join("model.nnl");
+    let model_src = format!(
+        r#"version 0.2;
+model maxpool1d_test {{
+    config {{ weights: "{}"; io: "stdio"; }}
+    layer input   = Input(shape: [6, 1]);
+    layer pool    = MaxPool1D(kernel: 2);
+    layer flatten = Flatten();
+    layer fc      = Dense(units: 1);
+}}
+"#,
+        weights_dir.display()
+    );
+    std::fs::write(&model_path, &model_src).unwrap();
+
+    let exe_path = tmp.path().join("maxpool1d_test");
+    nnc()
+        .args([
+            "compile",
+            model_path.to_str().unwrap(),
+            "--emit",
+            "exe",
+            "-o",
+            exe_path.to_str().unwrap(),
+        ])
+        .assert()
+        .success();
+
+    // Input: [1, 4, 2, 5, 3, 6] (6 values)
+    // MaxPool1D(kernel=2, stride=2): max([1,4])=4, max([2,5])=5, max([3,6])=6
+    // Dense(1): sum = 15.0
+    let input: Vec<f32> = vec![1.0, 4.0, 2.0, 5.0, 3.0, 6.0];
+    let input_bytes: Vec<u8> = input.iter().flat_map(|v| v.to_ne_bytes()).collect();
+
+    let output = Command::new(&exe_path)
+        .stdin(std::process::Stdio::piped())
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::piped())
+        .spawn()
+        .and_then(|mut child| {
+            use std::io::Write;
+            child.stdin.take().unwrap().write_all(&input_bytes)?;
+            child.wait_with_output()
+        })
+        .expect("failed to run maxpool1d_test binary");
+
+    assert!(
+        output.status.success(),
+        "maxpool1d_test failed: {:?}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert_eq!(output.stdout.len(), 4, "expected 1 float32 (4 bytes)");
+
+    let result = f32::from_ne_bytes(output.stdout[..4].try_into().unwrap());
+    assert!(
+        (result - 15.0).abs() < 1e-3,
+        "expected ~15.0 for MaxPool1D, got {result}"
+    );
+}

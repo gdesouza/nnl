@@ -251,6 +251,35 @@ fn lower_layer(layer: &ast::LayerDecl) -> Result<Layer, LowerError> {
                 scale_w: scale,
             }
         }
+        ast::LayerType::Conv1D => {
+            let filters = get_required_usize_param(&layer.params, "filters", &layer.span)?;
+            let kernel = get_required_usize_param(&layer.params, "kernel", &layer.span)?;
+            let stride = get_optional_usize_param(&layer.params, "stride")?.unwrap_or(1);
+            let padding = match get_optional_string_param(&layer.params, "padding")? {
+                Some("valid") | None => Padding::Valid,
+                Some("same") => Padding::Same,
+                Some(other) => {
+                    let p = find_param(&layer.params, "padding").unwrap();
+                    return Err(LowerError {
+                        message: format!(
+                            "invalid padding `{other}`, expected \"valid\" or \"same\""
+                        ),
+                        span: p.value.span().clone(),
+                    });
+                }
+            };
+            LayerKind::Conv1D {
+                filters,
+                kernel,
+                stride,
+                padding,
+            }
+        }
+        ast::LayerType::MaxPool1D => {
+            let kernel = get_required_usize_param(&layer.params, "kernel", &layer.span)?;
+            let stride = get_optional_usize_param(&layer.params, "stride")?;
+            LayerKind::MaxPool1D { kernel, stride }
+        }
     };
 
     Ok(Layer {

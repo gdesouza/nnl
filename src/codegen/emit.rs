@@ -400,6 +400,74 @@ pub fn emit_source(
                 }
             }
 
+            LayerKind::Conv1D {
+                filters,
+                kernel,
+                stride,
+                padding,
+            } => {
+                let src = src_buf(&buf_plan, layer_id, model);
+                let in_shape = input_shape_for(layer_id, model, shape_info);
+                let (il, ic) = (in_shape[0], in_shape[1]);
+                let ol = out_shape[0];
+                let w_var = weight_var(&format!("{layer_id}.weight"));
+                let b_var = weight_var(&format!("{layer_id}.bias"));
+
+                match padding {
+                    Padding::Valid => {
+                        writeln!(c, "    for (int ol_ = 0; ol_ < {ol}; ol_++) {{").unwrap();
+                        writeln!(c, "      for (int f = 0; f < {filters}; f++) {{").unwrap();
+                        writeln!(c, "        float sum = {b_var}[f];").unwrap();
+                        writeln!(c, "        for (int k = 0; k < {kernel}; k++) {{").unwrap();
+                        writeln!(c, "          for (int ci = 0; ci < {ic}; ci++) {{").unwrap();
+                        writeln!(c, "            int il_ = ol_ * {stride} + k;").unwrap();
+                        writeln!(c, "            sum += {src}[il_ * {ic} + ci] * {w_var}[((f * {ic} + ci) * {kernel}) + k];").unwrap();
+                        writeln!(c, "          }}").unwrap();
+                        writeln!(c, "        }}").unwrap();
+                        writeln!(c, "        {dst}[ol_ * {filters} + f] = sum;").unwrap();
+                        writeln!(c, "      }}").unwrap();
+                        writeln!(c, "    }}").unwrap();
+                    }
+                    Padding::Same => {
+                        let pad = (kernel - 1) / 2;
+                        writeln!(c, "    for (int ol_ = 0; ol_ < {ol}; ol_++) {{").unwrap();
+                        writeln!(c, "      for (int f = 0; f < {filters}; f++) {{").unwrap();
+                        writeln!(c, "        float sum = {b_var}[f];").unwrap();
+                        writeln!(c, "        for (int k = 0; k < {kernel}; k++) {{").unwrap();
+                        writeln!(c, "          int il_ = ol_ * {stride} + k - {pad};").unwrap();
+                        writeln!(c, "          if (il_ >= 0 && il_ < {il}) {{").unwrap();
+                        writeln!(c, "            for (int ci = 0; ci < {ic}; ci++) {{").unwrap();
+                        writeln!(c, "              sum += {src}[il_ * {ic} + ci] * {w_var}[((f * {ic} + ci) * {kernel}) + k];").unwrap();
+                        writeln!(c, "            }}").unwrap();
+                        writeln!(c, "          }}").unwrap();
+                        writeln!(c, "        }}").unwrap();
+                        writeln!(c, "        {dst}[ol_ * {filters} + f] = sum;").unwrap();
+                        writeln!(c, "      }}").unwrap();
+                        writeln!(c, "    }}").unwrap();
+                    }
+                }
+            }
+
+            LayerKind::MaxPool1D { kernel, stride } => {
+                let src = src_buf(&buf_plan, layer_id, model);
+                let in_shape = input_shape_for(layer_id, model, shape_info);
+                let channels = in_shape[1];
+                let s = stride.unwrap_or(*kernel);
+                let ol = out_shape[0];
+
+                writeln!(c, "    for (int ol_ = 0; ol_ < {ol}; ol_++) {{").unwrap();
+                writeln!(c, "      for (int ch = 0; ch < {channels}; ch++) {{").unwrap();
+                writeln!(c, "        float mv = -1e38f;").unwrap();
+                writeln!(c, "        for (int k = 0; k < {kernel}; k++) {{").unwrap();
+                writeln!(c, "          int il_ = ol_ * {s} + k;").unwrap();
+                writeln!(c, "          float v = {src}[il_ * {channels} + ch];").unwrap();
+                writeln!(c, "          if (v > mv) mv = v;").unwrap();
+                writeln!(c, "        }}").unwrap();
+                writeln!(c, "        {dst}[ol_ * {channels} + ch] = mv;").unwrap();
+                writeln!(c, "      }}").unwrap();
+                writeln!(c, "    }}").unwrap();
+            }
+
             LayerKind::Conv2D {
                 filters,
                 kernel,

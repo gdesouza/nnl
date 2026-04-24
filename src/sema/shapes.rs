@@ -137,6 +137,49 @@ fn compute_output_shape(
             Ok(input.clone())
         }
 
+        LayerKind::Conv1D {
+            filters,
+            kernel,
+            stride,
+            padding,
+            ..
+        } => {
+            let input = get_single_input_shape(&layer.id, model, shapes)?;
+            // Expect [L, C]
+            if input.len() != 2 {
+                return Err(ShapeError {
+                    code: "E002",
+                    message: format!(
+                        "shape mismatch at `{}`: Conv1D expects 2D input [L, C], got {:?}",
+                        layer.id, input
+                    ),
+                });
+            }
+            let l = input[0];
+            let ol = match padding {
+                Padding::Valid => (l - kernel) / stride + 1,
+                Padding::Same => l.div_ceil(*stride),
+            };
+            Ok(vec![ol, *filters])
+        }
+
+        LayerKind::MaxPool1D { kernel, stride } => {
+            let input = get_single_input_shape(&layer.id, model, shapes)?;
+            if input.len() != 2 {
+                return Err(ShapeError {
+                    code: "E002",
+                    message: format!(
+                        "shape mismatch at `{}`: MaxPool1D expects 2D input [L, C], got {:?}",
+                        layer.id, input
+                    ),
+                });
+            }
+            let l = input[0];
+            let s = stride.unwrap_or(*kernel);
+            let ol = (l - kernel) / s + 1;
+            Ok(vec![ol, input[1]])
+        }
+
         LayerKind::Upsample { scale_h, scale_w } => {
             let input = get_single_input_shape(&layer.id, model, shapes)?;
             if input.len() != 3 {

@@ -50,6 +50,21 @@ pub fn required_weights(model: &Model, shape_info: &ShapeInfo) -> Vec<RequiredWe
                     expected_shape: vec![*filters],
                 });
             }
+            LayerKind::Conv1D {
+                filters, kernel, ..
+            } => {
+                let in_channels = input_shape.and_then(|s| s.last().copied()).unwrap_or(0);
+                // weight: [filters, in_channels, kernel]
+                required.push(RequiredWeight {
+                    name: format!("{}.weight", layer.id),
+                    expected_shape: vec![*filters, in_channels, *kernel],
+                });
+                // bias: [filters]
+                required.push(RequiredWeight {
+                    name: format!("{}.bias", layer.id),
+                    expected_shape: vec![*filters],
+                });
+            }
             LayerKind::BatchNorm { .. } => {
                 let channels = input_shape.and_then(|s| s.last().copied()).unwrap_or(0);
                 for param in &["gamma", "beta", "running_mean", "running_var"] {

@@ -313,6 +313,8 @@ impl<'a> Parser<'a> {
             Some(Token::Mul) => LayerType::Mul,
             Some(Token::Hardswish) => LayerType::Hardswish,
             Some(Token::Upsample) => LayerType::Upsample,
+            Some(Token::Conv1D) => LayerType::Conv1D,
+            Some(Token::MaxPool1D) => LayerType::MaxPool1D,
             Some(other) => {
                 return Err(ParseError {
                     message: format!("expected layer type, got `{other}`"),

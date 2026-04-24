@@ -63,6 +63,10 @@ pub enum Token {
     Hardswish,
     #[token("Upsample")]
     Upsample,
+    #[token("Conv1D")]
+    Conv1D,
+    #[token("MaxPool1D")]
+    MaxPool1D,
 
     // Literals
     #[regex(r"[0-9]+\.[0-9]+", |lex| lex.slice().parse::<f64>().ok())]
@@ -134,6 +138,8 @@ impl fmt::Display for Token {
             Token::Mul => write!(f, "Mul"),
             Token::Hardswish => write!(f, "Hardswish"),
             Token::Upsample => write!(f, "Upsample"),
+            Token::Conv1D => write!(f, "Conv1D"),
+            Token::MaxPool1D => write!(f, "MaxPool1D"),
             Token::Float(v) => write!(f, "{v}"),
             Token::Integer(v) => write!(f, "{v}"),
             Token::String(v) => write!(f, "\"{v}\""),

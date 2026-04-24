@@ -163,6 +163,16 @@ pub enum LayerKind {
         scale_h: usize,
         scale_w: usize,
     },
+    Conv1D {
+        filters: usize,
+        kernel: usize,
+        stride: usize,
+        padding: Padding,
+    },
+    MaxPool1D {
+        kernel: usize,
+        stride: Option<usize>,
+    },
 }
 
 impl LayerKind {
@@ -188,6 +198,8 @@ impl LayerKind {
             LayerKind::Mul => "Mul",
             LayerKind::Hardswish => "Hardswish",
             LayerKind::Upsample { .. } => "Upsample",
+            LayerKind::Conv1D { .. } => "Conv1D",
+            LayerKind::MaxPool1D { .. } => "MaxPool1D",
         }
     }
 }

@@ -120,6 +120,8 @@ pub enum LayerType {
     Mul,
     Hardswish,
     Upsample,
+    Conv1D,
+    MaxPool1D,
 }
 
 impl std::fmt::Display for LayerType {
@@ -145,6 +147,8 @@ impl std::fmt::Display for LayerType {
             LayerType::Mul => write!(f, "Mul"),
             LayerType::Hardswish => write!(f, "Hardswish"),
             LayerType::Upsample => write!(f, "Upsample"),
+            LayerType::Conv1D => write!(f, "Conv1D"),
+            LayerType::MaxPool1D => write!(f, "MaxPool1D"),
         }
     }
 }

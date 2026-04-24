@@ -436,6 +436,70 @@ fn map_node(
             }
             Ok((layer_id, Some(format!("Dense(units: {units})")), weights))
         }
+        "Conv"
+            if node
+                .input
+                .get(1)
+                .and_then(|w| initializers.get(w.as_str()))
+                .is_some_and(|t| t.dims.len() == 3) =>
+        {
+            let mut weights = Vec::new();
+            let mut filters = 0usize;
+            let mut kernel = 3;
+            let mut stride = 1;
+            let mut padding = "valid";
+
+            if let Some(w_name) = node.input.get(1)
+                && let Some(tensor) = initializers.get(w_name.as_str())
+            {
+                filters = tensor.dims.first().copied().unwrap_or(0) as usize;
+                if tensor.dims.len() >= 3 {
+                    kernel = tensor.dims[2] as usize;
+                }
+                weights.push(WeightRef {
+                    initializer_name: w_name.clone(),
+                    param_name: "weight".to_string(),
+                    transpose: false,
+                    chw_to_hwc: None,
+                });
+            }
+            if let Some(b_name) = node.input.get(2)
+                && initializers.contains_key(b_name.as_str())
+            {
+                weights.push(WeightRef {
+                    initializer_name: b_name.clone(),
+                    param_name: "bias".to_string(),
+                    transpose: false,
+                    chw_to_hwc: None,
+                });
+            }
+
+            for attr in &node.attribute {
+                match attr.name.as_str() {
+                    "strides" => {
+                        if let Some(&s) = attr.ints.first() {
+                            stride = s as usize;
+                        }
+                    }
+                    "pads" if attr.ints.iter().any(|&p| p > 0) => {
+                        padding = "same";
+                    }
+                    "kernel_shape" => {
+                        if let Some(&k) = attr.ints.first() {
+                            kernel = k as usize;
+                        }
+                    }
+                    _ => {}
+                }
+            }
+            Ok((
+                layer_id,
+                Some(format!(
+                    "Conv1D(filters: {filters}, kernel: {kernel}, stride: {stride}, padding: \"{padding}\")"
+                )),
+                weights,
+            ))
+        }
         "Conv" => {
             let mut weights = Vec::new();
             let mut filters = 0usize;
@@ -502,6 +566,26 @@ fn map_node(
                     "Conv2D(filters: {filters}, kernel: {kernel}, stride: {stride}, padding: \"{padding}\"{groups_str})"
                 )),
                 weights,
+            ))
+        }
+        "MaxPool"
+            if node
+                .attribute
+                .iter()
+                .any(|a| a.name == "kernel_shape" && a.ints.len() == 1) =>
+        {
+            let mut kernel = 2;
+            for attr in &node.attribute {
+                if attr.name == "kernel_shape"
+                    && let Some(&k) = attr.ints.first()
+                {
+                    kernel = k as usize;
+                }
+            }
+            Ok((
+                layer_id,
+                Some(format!("MaxPool1D(kernel: {kernel})")),
+                Vec::new(),
             ))
         }
         "MaxPool" => {
