@@ -137,6 +137,20 @@ fn compute_output_shape(
             Ok(input.clone())
         }
 
+        LayerKind::Upsample { scale_h, scale_w } => {
+            let input = get_single_input_shape(&layer.id, model, shapes)?;
+            if input.len() != 3 {
+                return Err(ShapeError {
+                    code: "E002",
+                    message: format!(
+                        "shape mismatch at `{}`: Upsample expects 3D input [H, W, C], got {:?}",
+                        layer.id, input
+                    ),
+                });
+            }
+            Ok(vec![input[0] * scale_h, input[1] * scale_w, input[2]])
+        }
+
         LayerKind::Add | LayerKind::Mul => {
             let inputs = get_multi_input_shapes(&layer.id, model, shapes)?;
             if inputs.len() < 2 {

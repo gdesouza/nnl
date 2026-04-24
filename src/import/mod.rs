@@ -606,6 +606,29 @@ fn map_node(
         }
         "Mul" => Ok((layer_id, Some("Mul()".to_string()), Vec::new())),
         "HardSwish" => Ok((layer_id, Some("Hardswish()".to_string()), Vec::new())),
+        "Upsample" | "Resize" => {
+            let mut scale = 2usize;
+            // Try scales from attribute (Upsample opset < 10)
+            if let Some(attr) = node.attribute.iter().find(|a| a.name == "scales") {
+                // scales is [N, C, H, W]; take H scale (index 2)
+                if let Some(&s) = attr.floats.get(2) {
+                    scale = s as usize;
+                }
+            }
+            // Try scales from initializer input (Upsample opset 9+, Resize)
+            let scales_idx = if op == "Resize" { 2 } else { 1 };
+            if let Some(scales_name) = node.input.get(scales_idx)
+                && let Some(tensor) = initializers.get(scales_name.as_str())
+                && let Some(&s) = tensor.float_data.get(2)
+            {
+                scale = s as usize;
+            }
+            Ok((
+                layer_id,
+                Some(format!("Upsample(scale: {scale})")),
+                Vec::new(),
+            ))
+        }
         _ => Ok((layer_id, None, Vec::new())),
     }
 }
@@ -632,6 +655,8 @@ fn make_layer_id(node: &NodeProto, op: &str, counter: &mut HashMap<String, usize
         "Clip" => "relu6",
         "Mul" => "mul",
         "HardSwish" => "hardswish",
+        "Upsample" => "upsample",
+        "Resize" => "resize",
         other => other,
     };
     let count = counter.entry(base.to_string()).or_insert(0);

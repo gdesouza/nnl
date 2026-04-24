@@ -244,6 +244,13 @@ fn lower_layer(layer: &ast::LayerDecl) -> Result<Layer, LowerError> {
         ast::LayerType::SiLU => LayerKind::SiLU,
         ast::LayerType::Mul => LayerKind::Mul,
         ast::LayerType::Hardswish => LayerKind::Hardswish,
+        ast::LayerType::Upsample => {
+            let scale = get_required_usize_param(&layer.params, "scale", &layer.span)?;
+            LayerKind::Upsample {
+                scale_h: scale,
+                scale_w: scale,
+            }
+        }
     };
 
     Ok(Layer {

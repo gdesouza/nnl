@@ -119,6 +119,7 @@ pub enum LayerType {
     SiLU,
     Mul,
     Hardswish,
+    Upsample,
 }
 
 impl std::fmt::Display for LayerType {
@@ -143,6 +144,7 @@ impl std::fmt::Display for LayerType {
             LayerType::SiLU => write!(f, "SiLU"),
             LayerType::Mul => write!(f, "Mul"),
             LayerType::Hardswish => write!(f, "Hardswish"),
+            LayerType::Upsample => write!(f, "Upsample"),
         }
     }
 }

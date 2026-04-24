@@ -756,3 +756,76 @@ model hardswish_test {{
         "expected ~{expected}, got {result}"
     );
 }
+
+#[test]
+fn compile_and_run_upsample() {
+    let tmp = tempfile::tempdir().unwrap();
+    let weights_dir = tmp.path().join("weights");
+    std::fs::create_dir_all(&weights_dir).unwrap();
+
+    // Model: Input [2,2,1] -> Upsample(scale:2) -> Flatten -> Dense(1)
+    // Upsample output: [4,4,1] = 16 elements (nearest neighbor)
+    // Flatten: [16], Dense(1): sum all
+    write_npy_f32(&weights_dir.join("fc.weight.npy"), &[16, 1], &[1.0; 16]);
+    write_npy_f32(&weights_dir.join("fc.bias.npy"), &[1], &[0.0]);
+
+    let model_path = tmp.path().join("model.nnl");
+    let model_src = format!(
+        r#"version 0.2;
+model upsample_test {{
+    config {{ weights: "{}"; io: "stdio"; }}
+    layer input   = Input(shape: [2, 2, 1]);
+    layer up      = Upsample(scale: 2);
+    layer flatten = Flatten();
+    layer fc      = Dense(units: 1);
+}}
+"#,
+        weights_dir.display()
+    );
+    std::fs::write(&model_path, &model_src).unwrap();
+
+    let exe_path = tmp.path().join("upsample_test");
+    nnc()
+        .args([
+            "compile",
+            model_path.to_str().unwrap(),
+            "--emit",
+            "exe",
+            "-o",
+            exe_path.to_str().unwrap(),
+        ])
+        .assert()
+        .success();
+
+    // Input [2,2,1]: [[1, 2], [3, 4]] in HWC layout
+    // Upsample 2x nearest: each pixel repeated 2x2:
+    // [[1,1,2,2],[1,1,2,2],[3,3,4,4],[3,3,4,4]]
+    // Sum = 4*(1+2+3+4) = 40
+    let input: Vec<f32> = vec![1.0, 2.0, 3.0, 4.0];
+    let input_bytes: Vec<u8> = input.iter().flat_map(|v| v.to_ne_bytes()).collect();
+
+    let output = Command::new(&exe_path)
+        .stdin(std::process::Stdio::piped())
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::piped())
+        .spawn()
+        .and_then(|mut child| {
+            use std::io::Write;
+            child.stdin.take().unwrap().write_all(&input_bytes)?;
+            child.wait_with_output()
+        })
+        .expect("failed to run upsample_test binary");
+
+    assert!(
+        output.status.success(),
+        "upsample_test failed: {:?}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert_eq!(output.stdout.len(), 4, "expected 1 float32 (4 bytes)");
+
+    let result = f32::from_ne_bytes(output.stdout[..4].try_into().unwrap());
+    assert!(
+        (result - 40.0).abs() < 1e-3,
+        "expected ~40.0 for 2x upsample, got {result}"
+    );
+}

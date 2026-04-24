@@ -243,6 +243,27 @@ pub fn emit_source(
                 writeln!(c, "    }}").unwrap();
             }
 
+            LayerKind::Upsample { scale_h, scale_w } => {
+                let src = src_buf(&buf_plan, layer_id, model);
+                let in_shape = input_shape_for(layer_id, model, shape_info);
+                let (ih, iw, channels) = (in_shape[0], in_shape[1], in_shape[2]);
+                let (oh, ow) = (out_shape[0], out_shape[1]);
+                let _ = (ih, oh, ow); // used in format strings
+                writeln!(c, "    for (int oy = 0; oy < {oh}; oy++) {{").unwrap();
+                writeln!(c, "      for (int ox = 0; ox < {ow}; ox++) {{").unwrap();
+                writeln!(c, "        int iy = oy / {scale_h};").unwrap();
+                writeln!(c, "        int ix = ox / {scale_w};").unwrap();
+                writeln!(c, "        for (int ch = 0; ch < {channels}; ch++) {{").unwrap();
+                writeln!(
+                    c,
+                    "          {dst}[(oy * {ow} + ox) * {channels} + ch] = {src}[(iy * {iw} + ix) * {channels} + ch];"
+                )
+                .unwrap();
+                writeln!(c, "        }}").unwrap();
+                writeln!(c, "      }}").unwrap();
+                writeln!(c, "    }}").unwrap();
+            }
+
             LayerKind::Sigmoid => {
                 let src = src_buf(&buf_plan, layer_id, model);
                 writeln!(c, "    for (int i = 0; i < {out_elems}; i++) {{").unwrap();

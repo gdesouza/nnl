@@ -159,6 +159,10 @@ pub enum LayerKind {
     SiLU,
     Mul,
     Hardswish,
+    Upsample {
+        scale_h: usize,
+        scale_w: usize,
+    },
 }
 
 impl LayerKind {
@@ -183,6 +187,7 @@ impl LayerKind {
             LayerKind::SiLU => "SiLU",
             LayerKind::Mul => "Mul",
             LayerKind::Hardswish => "Hardswish",
+            LayerKind::Upsample { .. } => "Upsample",
         }
     }
 }
