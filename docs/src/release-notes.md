@@ -1,5 +1,16 @@
 # Release Notes
 
+## [0.6.0] — 2026-04-23
+
+### Added
+
+- **New layers: Hardswish, Upsample, Conv1D, MaxPool1D, LayerNorm** — five new layer types across all pipeline stages (lexer, parser, IR, shape inference, codegen, ONNX import), completing the Tier 4 roadmap from the ONNX spec.
+- **Hardswish activation** — `Hardswish(x) = x * min(max(0, x+3), 6) / 6`, unlocks MobileNetV3. ONNX `HardSwish` op imported automatically.
+- **Upsample layer** — `Upsample(scale: N)` with nearest-neighbor interpolation for spatial upsampling. ONNX `Upsample` and `Resize` ops imported automatically. Unlocks YOLO-Tiny, U-Net, and encoder-decoder models.
+- **Conv1D layer** — 1D convolution with `filters`, `kernel`, `stride`, `padding` parameters. ONNX `Conv` ops with 3D weight tensors auto-detected as Conv1D. Enables audio, time-series, and keyword spotting models.
+- **MaxPool1D layer** — 1D max pooling with `kernel` and optional `stride`. ONNX `MaxPool` ops with 1D `kernel_shape` auto-detected. Enables audio and time-series models.
+- **LayerNorm layer** — Layer normalization with learnable `scale` and `bias` over the last dimension, with configurable `epsilon`. ONNX `LayerNormalization` op imported with epsilon and weights. Enables transformer-adjacent models.
+
 ## [0.5.0] — 2026-04-23
 
 ### Added

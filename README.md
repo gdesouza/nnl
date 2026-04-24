@@ -3,7 +3,7 @@
 [![CI](https://github.com/gdesouza/nnl/actions/workflows/ci.yml/badge.svg)](https://github.com/gdesouza/nnl/actions/workflows/ci.yml)
 [![Release](https://github.com/gdesouza/nnl/actions/workflows/release.yml/badge.svg)](https://github.com/gdesouza/nnl/actions/workflows/release.yml)
 [![Security](https://github.com/gdesouza/nnl/actions/workflows/security.yml/badge.svg)](https://github.com/gdesouza/nnl/actions/workflows/security.yml)
-[![Latest Release](https://img.shields.io/github/v/release/gdesouza/nnl)](https://github.com/gdesouza/nnl/releases/tag/v0.5.0)
+[![Latest Release](https://img.shields.io/github/v/release/gdesouza/nnl)](https://github.com/gdesouza/nnl/releases/tag/v0.6.0)
 
 NNL is a declarative language for defining neural network architectures, paired with the `nnc` compiler that produces **standalone, zero-dependency native binaries** with embedded weights.
 
@@ -66,16 +66,18 @@ model mnist_classifier {
 - Low-latency inference (real-time control, HFT, robotics)
 - Minimal-dependency deployments (air-gapped, hardened containers, serverless)
 
-## Current Scope (v0.5)
+## Current Scope (v0.6)
 
-NNLang v0.4 targets **small to medium CNN and MLP models** for inference.
+NNLang v0.6 targets **small to medium CNN, MLP, and 1D models** for inference.
 The following limitations apply:
 
 - **float32 only.** `int8` and `float64` precision are reserved for future versions.
-- **Supported layers:** Input, Dense, Conv2D, MaxPool2D, AvgPool2D, Flatten,
-  BatchNorm, Dropout, Add, Concat, ReLU, Sigmoid, Softmax.
-- **No recurrent layers** (LSTM, GRU), **no transformer layers** (Attention,
-  LayerNorm), **no 1D convolutions**, **no Reshape/Transpose**.
+- **Supported layers:** Input, Dense, Conv2D, Conv1D, MaxPool2D, MaxPool1D,
+  AvgPool2D, GlobalAvgPool2D, Flatten, BatchNorm, LayerNorm, Dropout, Add,
+  Concat, Mul, Upsample, ReLU, ReLU6, LeakyReLU, SiLU, Hardswish, Sigmoid,
+  Softmax.
+- **No recurrent layers** (LSTM, GRU), **no attention layers**,
+  **no Reshape/Transpose**.
 - **Single input, single output.** Multi-input/output models are not supported.
 - **ONNX import** covers the ops listed above; unsupported ops are emitted as
   comments for manual resolution.
