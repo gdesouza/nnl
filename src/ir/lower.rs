@@ -243,6 +243,7 @@ fn lower_layer(layer: &ast::LayerDecl) -> Result<Layer, LowerError> {
         }
         ast::LayerType::SiLU => LayerKind::SiLU,
         ast::LayerType::Mul => LayerKind::Mul,
+        ast::LayerType::Hardswish => LayerKind::Hardswish,
     };
 
     Ok(Layer {

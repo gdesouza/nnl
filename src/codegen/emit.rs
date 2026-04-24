@@ -236,6 +236,13 @@ pub fn emit_source(
                 writeln!(c, "    }}").unwrap();
             }
 
+            LayerKind::Hardswish => {
+                let src = src_buf(&buf_plan, layer_id, model);
+                writeln!(c, "    for (int i = 0; i < {out_elems}; i++) {{").unwrap();
+                writeln!(c, "        {dst}[i] = {src}[i] * fminf(fmaxf(0.0f, {src}[i] + 3.0f), 6.0f) / 6.0f;").unwrap();
+                writeln!(c, "    }}").unwrap();
+            }
+
             LayerKind::Sigmoid => {
                 let src = src_buf(&buf_plan, layer_id, model);
                 writeln!(c, "    for (int i = 0; i < {out_elems}; i++) {{").unwrap();

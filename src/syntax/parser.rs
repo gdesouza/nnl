@@ -311,6 +311,7 @@ impl<'a> Parser<'a> {
             Some(Token::LeakyReLU) => LayerType::LeakyReLU,
             Some(Token::SiLU) => LayerType::SiLU,
             Some(Token::Mul) => LayerType::Mul,
+            Some(Token::Hardswish) => LayerType::Hardswish,
             Some(other) => {
                 return Err(ParseError {
                     message: format!("expected layer type, got `{other}`"),

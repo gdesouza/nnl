@@ -118,6 +118,7 @@ pub enum LayerType {
     LeakyReLU,
     SiLU,
     Mul,
+    Hardswish,
 }
 
 impl std::fmt::Display for LayerType {
@@ -141,6 +142,7 @@ impl std::fmt::Display for LayerType {
             LayerType::LeakyReLU => write!(f, "LeakyReLU"),
             LayerType::SiLU => write!(f, "SiLU"),
             LayerType::Mul => write!(f, "Mul"),
+            LayerType::Hardswish => write!(f, "Hardswish"),
         }
     }
 }

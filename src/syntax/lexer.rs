@@ -59,6 +59,8 @@ pub enum Token {
     SiLU,
     #[token("Mul")]
     Mul,
+    #[token("Hardswish")]
+    Hardswish,
 
     // Literals
     #[regex(r"[0-9]+\.[0-9]+", |lex| lex.slice().parse::<f64>().ok())]
@@ -128,6 +130,7 @@ impl fmt::Display for Token {
             Token::LeakyReLU => write!(f, "LeakyReLU"),
             Token::SiLU => write!(f, "SiLU"),
             Token::Mul => write!(f, "Mul"),
+            Token::Hardswish => write!(f, "Hardswish"),
             Token::Float(v) => write!(f, "{v}"),
             Token::Integer(v) => write!(f, "{v}"),
             Token::String(v) => write!(f, "\"{v}\""),

@@ -681,3 +681,78 @@ model rect_cnn {{
         "expected ~120.0 for rectangular kernel [3,5], got {result}"
     );
 }
+
+#[test]
+fn compile_and_run_hardswish() {
+    let tmp = tempfile::tempdir().unwrap();
+    let weights_dir = tmp.path().join("weights");
+    std::fs::create_dir_all(&weights_dir).unwrap();
+
+    // MLP: input [4] -> hardswish -> fc(units: 1)
+    // fc.weight: all 1.0, bias 0 → sums the hardswish outputs
+    write_npy_f32(&weights_dir.join("fc.weight.npy"), &[4, 1], &[1.0; 4]);
+    write_npy_f32(&weights_dir.join("fc.bias.npy"), &[1], &[0.0]);
+
+    let model_path = tmp.path().join("model.nnl");
+    let model_src = format!(
+        r#"version 0.2;
+model hardswish_test {{
+    config {{ weights: "{}"; io: "stdio"; }}
+    layer input = Input(shape: [4]);
+    layer hs    = Hardswish();
+    layer fc    = Dense(units: 1);
+}}
+"#,
+        weights_dir.display()
+    );
+    std::fs::write(&model_path, &model_src).unwrap();
+
+    let exe_path = tmp.path().join("hardswish_test");
+    nnc()
+        .args([
+            "compile",
+            model_path.to_str().unwrap(),
+            "--emit",
+            "exe",
+            "-o",
+            exe_path.to_str().unwrap(),
+        ])
+        .assert()
+        .success();
+
+    // Input: [-4.0, -1.0, 0.0, 5.0]
+    // Hardswish(x) = x * min(max(0, x+3), 6) / 6
+    //   -4.0: -4 * min(max(0,-1),6)/6 = -4 * 0/6 = 0
+    //   -1.0: -1 * min(max(0,2),6)/6 = -1 * 2/6 = -0.3333..
+    //    0.0: 0 * min(max(0,3),6)/6 = 0
+    //    5.0: 5 * min(max(0,8),6)/6 = 5 * 6/6 = 5
+    // Sum = 0 + (-0.3333) + 0 + 5 = 4.6666..
+    let input: Vec<f32> = vec![-4.0, -1.0, 0.0, 5.0];
+    let input_bytes: Vec<u8> = input.iter().flat_map(|v| v.to_ne_bytes()).collect();
+
+    let output = Command::new(&exe_path)
+        .stdin(std::process::Stdio::piped())
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::piped())
+        .spawn()
+        .and_then(|mut child| {
+            use std::io::Write;
+            child.stdin.take().unwrap().write_all(&input_bytes)?;
+            child.wait_with_output()
+        })
+        .expect("failed to run hardswish_test binary");
+
+    assert!(
+        output.status.success(),
+        "hardswish_test failed: {:?}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert_eq!(output.stdout.len(), 4, "expected 1 float32 (4 bytes)");
+
+    let result = f32::from_ne_bytes(output.stdout[..4].try_into().unwrap());
+    let expected = 4.6666666;
+    assert!(
+        (result - expected).abs() < 1e-3,
+        "expected ~{expected}, got {result}"
+    );
+}

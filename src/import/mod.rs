@@ -605,6 +605,7 @@ fn map_node(
             }
         }
         "Mul" => Ok((layer_id, Some("Mul()".to_string()), Vec::new())),
+        "HardSwish" => Ok((layer_id, Some("Hardswish()".to_string()), Vec::new())),
         _ => Ok((layer_id, None, Vec::new())),
     }
 }
@@ -630,6 +631,7 @@ fn make_layer_id(node: &NodeProto, op: &str, counter: &mut HashMap<String, usize
         "LeakyRelu" => "leaky_relu",
         "Clip" => "relu6",
         "Mul" => "mul",
+        "HardSwish" => "hardswish",
         other => other,
     };
     let count = counter.entry(base.to_string()).or_insert(0);

@@ -158,6 +158,7 @@ pub enum LayerKind {
     },
     SiLU,
     Mul,
+    Hardswish,
 }
 
 impl LayerKind {
@@ -181,6 +182,7 @@ impl LayerKind {
             LayerKind::LeakyReLU { .. } => "LeakyReLU",
             LayerKind::SiLU => "SiLU",
             LayerKind::Mul => "Mul",
+            LayerKind::Hardswish => "Hardswish",
         }
     }
 }
