@@ -91,12 +91,14 @@ impl std::fmt::Display for Preprocess {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum IoMode {
     Stdio,
+    None,
 }
 
 impl std::fmt::Display for IoMode {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             IoMode::Stdio => write!(f, "stdio"),
+            IoMode::None => write!(f, "none"),
         }
     }
 }

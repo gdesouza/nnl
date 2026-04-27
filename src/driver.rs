@@ -5,7 +5,7 @@ use crate::codegen::{emit, toolchain};
 use crate::diag::NncError;
 use crate::ir::graph::{self, GraphInfo};
 use crate::ir::lower;
-use crate::ir::model::Model;
+use crate::ir::model::{IoMode, Model};
 use crate::sema::{memory, shapes, validate};
 use crate::syntax::{lexer, parser};
 use crate::weights;
@@ -136,6 +136,14 @@ fn run_compile(
         Ok(r) => r,
         Err(code) => return code,
     };
+
+    if fr.model.config.io == IoMode::None && matches!(emit_fmt, EmitFormat::Exe) {
+        eprintln!(
+            "{}: cannot emit executable with io: \"none\" — use --emit lib, shared, or obj",
+            source.display()
+        );
+        return 1;
+    }
 
     // Load weights
     let weight_set = match weights::load_and_validate(&fr.model, &fr.shape_info) {

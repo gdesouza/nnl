@@ -87,7 +87,7 @@ The config block defines global compilation parameters.
 | preprocess | String | No | "none" | Input preprocessing ("none", "normalize_0_1", "standardize"). |
 | preprocess_mean | Shape | No | — | Per-channel mean for "standardize" (e.g., [0.485, 0.456, 0.406]). |
 | preprocess_std | Shape | No | — | Per-channel std for "standardize" (e.g., [0.229, 0.224, 0.225]). |
-| io | String | No | "stdio" | I/O mode for `--emit exe` binaries (see §7.4). Currently only "stdio" is supported. |
+| io | String | No | "stdio" | I/O mode: "stdio" (generates main() for exe) or "none" (library-only, no main()). See §7.3. |
 | memory_limit | String | No | — | Maximum total static memory (e.g. "256MB"). Compile error if exceeded. Accepted units: KB, MB, GB. |
 
 ## 3. Layer Definitions
@@ -280,7 +280,14 @@ cat input.bin | ./mnist_classifier > output.bin
 
 Where `input.bin` contains 784 float32 values (28×28×1) as raw bytes, and `output.bin` will contain 10 float32 values.
 
-#### 7.3.2 Future I/O Modes
+#### 7.3.2 `"none"` (library-only)
+
+No `main()` function is generated. The output contains only the inference function, size helpers, and embedded weights. This mode is intended for library artifacts (`--emit lib`, `--emit shared`, `--emit obj`) that will be linked into a host application.
+
+- `io: "none"` with `--emit exe` produces a compile error: "cannot emit executable with io: \"none\"".
+- `io: "none"` with `--emit lib|shared|obj|header|c` works normally.
+
+#### 7.3.3 Future I/O Modes
 
 The following modes are reserved for future specification and are not yet implemented:
 

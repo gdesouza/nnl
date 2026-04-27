@@ -210,6 +210,31 @@ model test {
 }
 
 #[test]
+fn error_io_none_with_emit_exe() {
+    let tmp = tempfile::tempdir().unwrap();
+    let weights_dir = tmp.path().join("weights");
+    std::fs::create_dir_all(&weights_dir).unwrap();
+
+    let model_path = tmp.path().join("model.nnl");
+    std::fs::write(
+        &model_path,
+        format!(
+            r#"model test {{ config {{ weights: "{}"; io: "none"; }} layer input = Input(shape: [1]); }}"#,
+            weights_dir.display()
+        ),
+    )
+    .unwrap();
+
+    nnc()
+        .args(["compile", model_path.to_str().unwrap(), "--emit", "exe"])
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains(
+            "cannot emit executable with io: \"none\"",
+        ));
+}
+
+#[test]
 fn error_missing_required_param() {
     let source = r#"
 model test {

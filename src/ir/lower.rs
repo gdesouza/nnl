@@ -121,10 +121,11 @@ fn lower_config(config: &ast::ConfigBlock) -> Result<Config, LowerError> {
             "io" => {
                 io = match get_string(&setting.value)? {
                     "stdio" => IoMode::Stdio,
+                    "none" => IoMode::None,
                     other => {
                         return Err(LowerError {
                             message: format!(
-                                "unsupported io mode `{other}`, only \"stdio\" is currently supported"
+                                "unsupported io mode `{other}`, expected \"stdio\" or \"none\""
                             ),
                             span: setting.value.span().clone(),
                         });
