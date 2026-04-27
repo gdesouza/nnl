@@ -1,0 +1,27 @@
+{
+  "serena": {
+    "command": "serena",
+    "args": [
+      "start-mcp-server",
+      "--context=ide",
+      "--project-from-cwd"
+    ],
+    "includeTools": [
+      "activate_project",
+      "initial_instructions",
+      "check_onboarding_performed",
+      "onboarding",
+      "find_symbol",
+      "get_symbols_overview",
+      "find_referencing_symbols",
+      "read_file",
+      "find_file",
+      "list_dir",
+      "search_for_pattern",
+      "list_memories",
+      "read_memory",
+      "write_memory",
+      "get_current_config"
+    ]
+  }
+}
