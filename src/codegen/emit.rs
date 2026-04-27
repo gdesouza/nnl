@@ -1,6 +1,6 @@
 use std::fmt::Write;
 
-use crate::ir::model::{Activation, LayerKind, Model, Preprocess};
+use crate::ir::model::{Activation, IoMode, LayerKind, Model, Preprocess};
 use crate::sema::shapes::ShapeInfo;
 use crate::weights::WeightSet;
 
@@ -721,7 +721,9 @@ pub fn emit_source(
     writeln!(c).unwrap();
 
     // ── Main (stdio) ─────────────────────────────────────────────
-    emit_main(&mut c, &name, input_elems, output_elems);
+    if model.config.io == IoMode::Stdio {
+        emit_main(&mut c, &name, input_elems, output_elems);
+    }
 
     c
 }
