@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.7.0] — 2026-04-26
+
+### Added
+
+- **Compile-time memory check with optional `memory_limit` config** — `nnc` now computes total static memory (weights + workspace) and emits a W003 warning when it exceeds 256 MB. Add `memory_limit: "128MB"` to the config block to turn this into a hard compile error (E009). `nnc inspect` now shows a "Total memory" line. Accepted units: KB, MB, GB.
+- **`io: "none"` config option** — skips `main()` generation, producing a pure library artifact. Use with `--emit lib`, `--emit shared`, or `--emit obj` for embedding models in host applications. `io: "none"` with `--emit exe` produces a clear compile error.
+- **Integration examples** — new `examples/integration/` directory with documented examples showing how to call an NNL-compiled model from C++, Rust, Go, and Python, using static/shared library linking and FFI.
+
 ## [0.6.0] — 2026-04-23
 
 ### Added
