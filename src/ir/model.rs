@@ -22,6 +22,7 @@ pub struct Config {
     pub preprocess_std: Option<Vec<f64>>,
     #[allow(dead_code)]
     pub io: IoMode,
+    pub memory_limit: Option<usize>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

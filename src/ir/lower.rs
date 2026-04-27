@@ -33,6 +33,7 @@ fn lower_config(config: &ast::ConfigBlock) -> Result<Config, LowerError> {
     let mut preprocess_mean: Option<Vec<f64>> = None;
     let mut preprocess_std: Option<Vec<f64>> = None;
     let mut io = IoMode::Stdio;
+    let mut memory_limit: Option<usize> = None;
 
     let known_keys = [
         "precision",
@@ -44,6 +45,7 @@ fn lower_config(config: &ast::ConfigBlock) -> Result<Config, LowerError> {
         "preprocess_mean",
         "preprocess_std",
         "io",
+        "memory_limit",
     ];
 
     for setting in &config.settings {
@@ -129,6 +131,13 @@ fn lower_config(config: &ast::ConfigBlock) -> Result<Config, LowerError> {
                     }
                 };
             }
+            "memory_limit" => {
+                let s = get_string(&setting.value)?;
+                memory_limit = Some(parse_memory_limit(s).map_err(|msg| LowerError {
+                    message: msg,
+                    span: setting.value.span().clone(),
+                })?);
+            }
             _ => unreachable!(),
         }
     }
@@ -148,6 +157,7 @@ fn lower_config(config: &ast::ConfigBlock) -> Result<Config, LowerError> {
         preprocess_mean,
         preprocess_std,
         io,
+        memory_limit,
     })
 }
 
@@ -459,5 +469,32 @@ fn get_optional_int_param(params: &[ast::Param], name: &str) -> Result<Option<i6
             }),
         },
         None => Ok(None),
+    }
+}
+
+fn parse_memory_limit(s: &str) -> Result<usize, String> {
+    let s = s.trim();
+    if let Some(num) = s.strip_suffix("GB") {
+        let n: f64 = num
+            .trim()
+            .parse()
+            .map_err(|_| format!("invalid memory_limit `{s}`, expected e.g. \"256MB\""))?;
+        Ok((n * 1024.0 * 1024.0 * 1024.0) as usize)
+    } else if let Some(num) = s.strip_suffix("MB") {
+        let n: f64 = num
+            .trim()
+            .parse()
+            .map_err(|_| format!("invalid memory_limit `{s}`, expected e.g. \"256MB\""))?;
+        Ok((n * 1024.0 * 1024.0) as usize)
+    } else if let Some(num) = s.strip_suffix("KB") {
+        let n: f64 = num
+            .trim()
+            .parse()
+            .map_err(|_| format!("invalid memory_limit `{s}`, expected e.g. \"256MB\""))?;
+        Ok((n * 1024.0) as usize)
+    } else {
+        Err(format!(
+            "invalid memory_limit `{s}`, expected a value with KB, MB, or GB suffix (e.g. \"256MB\")"
+        ))
     }
 }

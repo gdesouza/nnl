@@ -13,6 +13,52 @@ pub struct MemoryInfo {
     pub weight_bytes: usize,
     /// Estimated static workspace in bytes (peak activation memory).
     pub workspace_bytes: usize,
+    /// Total static memory (weights + workspace).
+    pub total_bytes: usize,
+}
+
+/// Result of a memory limit check.
+pub enum MemoryCheck {
+    /// Total memory is within limits, no issues.
+    Ok,
+    /// Total memory exceeds 256 MB default threshold (warning).
+    Warning(String),
+    /// Total memory exceeds the user-specified limit (hard error).
+    Error(String),
+}
+
+/// Check memory against optional user limit and default 256 MB warning threshold.
+pub fn check_memory_limit(mem_info: &MemoryInfo, limit: Option<usize>) -> MemoryCheck {
+    let total = mem_info.total_bytes;
+    if let Some(max_bytes) = limit
+        && total > max_bytes
+    {
+        return MemoryCheck::Error(format!(
+            "E009: total static memory ({}) exceeds memory_limit ({})",
+            format_bytes(total),
+            format_bytes(max_bytes),
+        ));
+    }
+    const DEFAULT_WARN_THRESHOLD: usize = 256 * 1024 * 1024;
+    if total > DEFAULT_WARN_THRESHOLD {
+        return MemoryCheck::Warning(format!(
+            "W003: this model requires {} of static memory — verify your target supports this",
+            format_bytes(total),
+        ));
+    }
+    MemoryCheck::Ok
+}
+
+fn format_bytes(bytes: usize) -> String {
+    if bytes < 1024 {
+        format!("{bytes} B")
+    } else if bytes < 1024 * 1024 {
+        format!("{:.1} KB", bytes as f64 / 1024.0)
+    } else if bytes < 1024 * 1024 * 1024 {
+        format!("{:.2} MB", bytes as f64 / (1024.0 * 1024.0))
+    } else {
+        format!("{:.2} GB", bytes as f64 / (1024.0 * 1024.0 * 1024.0))
+    }
 }
 
 /// Compute parameter counts and memory estimates.
@@ -41,12 +87,14 @@ pub fn estimate_memory(model: &Model, shapes: &IndexMap<String, Vec<usize>>) -> 
     }
     activation_sizes.sort_unstable_by(|a, b| b.cmp(a));
     let workspace_bytes = activation_sizes.iter().take(2).sum();
+    let total_bytes = weight_bytes + workspace_bytes;
 
     MemoryInfo {
         layer_params,
         total_params,
         weight_bytes,
         workspace_bytes,
+        total_bytes,
     }
 }
 
