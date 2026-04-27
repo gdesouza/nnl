@@ -88,6 +88,7 @@ The config block defines global compilation parameters.
 | preprocess_mean | Shape | No | — | Per-channel mean for "standardize" (e.g., [0.485, 0.456, 0.406]). |
 | preprocess_std | Shape | No | — | Per-channel std for "standardize" (e.g., [0.229, 0.224, 0.225]). |
 | io | String | No | "stdio" | I/O mode for `--emit exe` binaries (see §7.4). Currently only "stdio" is supported. |
+| memory_limit | String | No | — | Maximum total static memory (e.g. "256MB"). Compile error if exceeded. Accepted units: KB, MB, GB. |
 
 ## 3. Layer Definitions
 

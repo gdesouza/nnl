@@ -114,6 +114,15 @@ fn run_inspect(source: &Path) -> i32 {
 
     let mem_info = memory::estimate_memory(&fr.model, &fr.shape_info.shapes);
     print_inspect(&fr.model, &fr.shape_info, &mem_info);
+
+    match memory::check_memory_limit(&mem_info, fr.model.config.memory_limit) {
+        memory::MemoryCheck::Ok => {}
+        memory::MemoryCheck::Warning(msg) => eprintln!("{}: {msg}", source.display()),
+        memory::MemoryCheck::Error(msg) => {
+            eprintln!("{}: {msg}", source.display());
+            return 1;
+        }
+    }
     0
 }
 
@@ -136,6 +145,17 @@ fn run_compile(
             return 1;
         }
     };
+
+    // Memory check
+    let mem_info = memory::estimate_memory(&fr.model, &fr.shape_info.shapes);
+    match memory::check_memory_limit(&mem_info, fr.model.config.memory_limit) {
+        memory::MemoryCheck::Ok => {}
+        memory::MemoryCheck::Warning(msg) => eprintln!("{}: {msg}", source.display()),
+        memory::MemoryCheck::Error(msg) => {
+            eprintln!("{}: {msg}", source.display());
+            return 1;
+        }
+    }
 
     // Generate C source and header
     let c_header = emit::emit_header(&fr.model, &fr.shape_info);
@@ -382,6 +402,7 @@ fn print_inspect(
         "Workspace:       {} (static buffer)",
         format_bytes(mem_info.workspace_bytes)
     );
+    println!("Total memory:    {}", format_bytes(mem_info.total_bytes));
 }
 
 fn format_shape(shape: &[usize]) -> String {
