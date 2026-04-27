@@ -1,0 +1,11 @@
+version 0.2;
+
+model simple_mlp {
+    config {
+        weights: "./weights";
+        io: "none";
+    }
+
+    layer input  = Input(shape: [4]);
+    layer output = Dense(units: 2, activation: "softmax");
+}

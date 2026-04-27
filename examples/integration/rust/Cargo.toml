@@ -1,0 +1,10 @@
+[package]
+name = "nnl-rust-example"
+version = "0.1.0"
+edition = "2021"
+
+# Build instructions:
+#   1. cd examples/integration
+#   2. nnc compile model.nnl --emit lib -o libsimple_mlp.a
+#   3. cd rust
+#   4. cargo run
