@@ -157,7 +157,7 @@ fn run_compile(
     }
 
     // Load weights
-    let weight_set = match weights::load_and_validate(&fr.model, &fr.shape_info) {
+    let weight_set = match weights::load_and_validate(&fr.model, &fr.shape_info, source) {
         Ok(w) => w,
         Err(e) => {
             eprintln!("{}: {}: {}", source.display(), e.code, e.message);
