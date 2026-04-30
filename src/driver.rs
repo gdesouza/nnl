@@ -31,6 +31,7 @@ pub fn run(cli: &Cli) -> i32 {
         }
     };
     match command {
+        Command::New { name, project } => run_new(name, project),
         Command::Compile {
             source,
             emit,
@@ -123,6 +124,16 @@ fn run_inspect(source: &Path) -> i32 {
             return 1;
         }
     }
+    0
+}
+
+fn run_new(name: &Path, project: &crate::cli::ProjectKind) -> i32 {
+    if let Err(message) = crate::scaffold::create_project(name, project) {
+        eprintln!("nnc: {message}");
+        return 1;
+    }
+
+    eprintln!("nnc: created {}", name.display());
     0
 }
 

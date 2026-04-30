@@ -5,6 +5,7 @@ mod driver;
 mod codegen;
 mod import;
 mod ir;
+mod scaffold;
 mod sema;
 mod syntax;
 mod weights;

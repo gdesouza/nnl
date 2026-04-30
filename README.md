@@ -89,6 +89,7 @@ The following limitations apply:
 
 | Command | Description |
 |---------|-------------|
+| `nnc new` | Generate a starter host-language project around a sample NNL model |
 | `nnc compile` | Compile an NNL model to a native artifact (exe, .o, .a, .so, .h) |
 | `nnc inspect` | Print graph, shapes, parameter counts, and memory estimates |
 | `nnc import` | Convert an ONNX model to NNL format with extracted weights |
