@@ -134,19 +134,76 @@ model test_mlp {{
 }
 
 #[test]
-fn error_weights_file_not_found() {
-    let source = r#"
-model test {
-    config { weights: "/nonexistent/weights.npz"; }
+fn error_missing_weights_in_directory_lists_expected_files() {
+    let tmp = tempfile::tempdir().unwrap();
+    let weights_dir = tmp.path().join("weights");
+    std::fs::create_dir_all(&weights_dir).unwrap();
+
+    let model_path = tmp.path().join("model.nnl");
+    let model_src = format!(
+        r#"
+version 0.2;
+model test {{
+    config {{ weights: "{}"; }}
     layer input = Input(shape: [4]);
     layer fc = Dense(units: 3);
-}
-"#;
-    // inspect doesn't load weights, but compile would.
-    // For now just verify inspect works without weights present
+}}
+"#,
+        weights_dir.display()
+    );
+    std::fs::write(&model_path, &model_src).unwrap();
+
     nnc()
-        .args(["inspect", "/dev/stdin"])
-        .write_stdin(source)
+        .args(["compile", model_path.to_str().unwrap()])
         .assert()
-        .success();
+        .failure()
+        .stderr(predicate::str::contains("missing required weight files"))
+        .stderr(predicate::str::contains(weights_dir.to_str().unwrap()))
+        .stderr(predicate::str::contains("fc.weight.npy"))
+        .stderr(predicate::str::contains("fc.bias.npy"))
+        .stderr(predicate::str::contains("expected tensors and shapes"));
+}
+
+#[test]
+fn error_missing_weights_in_npz_lists_expected_arrays() {
+    let tmp = tempfile::tempdir().unwrap();
+    let npz_path = tmp.path().join("weights.npz");
+
+    {
+        let mut writer = npyz::npz::NpzWriter::create(&npz_path).unwrap();
+        let options = zip::write::FileOptions::default();
+
+        let mut arr = writer
+            .array::<f32>("fc.weight", options)
+            .unwrap()
+            .default_dtype()
+            .shape(&[4, 3])
+            .begin_nd()
+            .unwrap();
+        arr.extend([0.1_f32; 12]).unwrap();
+        arr.finish().unwrap();
+    }
+
+    let model_path = tmp.path().join("model.nnl");
+    let model_src = format!(
+        r#"
+version 0.2;
+model test {{
+    config {{ weights: "{}"; }}
+    layer input = Input(shape: [4]);
+    layer fc = Dense(units: 3);
+}}
+"#,
+        npz_path.display()
+    );
+    std::fs::write(&model_path, &model_src).unwrap();
+
+    nnc()
+        .args(["compile", model_path.to_str().unwrap()])
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains("missing required weight arrays"))
+        .stderr(predicate::str::contains(npz_path.to_str().unwrap()))
+        .stderr(predicate::str::contains("fc.bias"))
+        .stderr(predicate::str::contains("expected tensors and shapes"));
 }
