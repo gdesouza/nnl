@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.8.0] — 2026-04-30
+
+### Added
+
+- **`nnc new` project scaffolding** — generate a starter host-language project around a sample NNL model. Supports `--project rust`, `go`, `cpp`, and `python`. The scaffold includes a sample `model.nnl` (configured with `io: "none"`), host-language boilerplate wired to the generated C ABI, a build script or build file for compiling the model artifact, and a README with run instructions.
+
+### Changed
+
+- **Improved missing-weight diagnostics (E003)** — `nnc compile` now produces a structured, actionable error when required weights are missing. Errors list every missing tensor with its expected shape, identify whether the source is a directory of `.npy` files, an `.npz` archive, or another path, and include a `hint:` to run `nnc inspect <model>` to view expected tensors and shapes. All missing weights are reported in a single error instead of stopping at the first one.
+
 ## [0.7.0] — 2026-04-26
 
 ### Added
