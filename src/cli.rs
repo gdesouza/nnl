@@ -17,6 +17,16 @@ pub struct Cli {
 
 #[derive(Subcommand)]
 pub enum Command {
+    /// Create a starter project that integrates an NNL-compiled model
+    New {
+        /// Name of the directory to create
+        name: PathBuf,
+
+        /// Host project type to generate
+        #[arg(long)]
+        project: ProjectKind,
+    },
+
     /// Compile an NNL model to a native artifact
     Compile {
         /// Path to the .nnl source file
@@ -82,6 +92,14 @@ pub enum EmitFormat {
     Shared,
     Header,
     C,
+}
+
+#[derive(Clone, Debug, clap::ValueEnum)]
+pub enum ProjectKind {
+    Rust,
+    Go,
+    Cpp,
+    Python,
 }
 
 pub fn parse() -> Cli {

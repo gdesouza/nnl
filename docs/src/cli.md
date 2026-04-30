@@ -4,6 +4,41 @@
 
 ---
 
+## nnc new
+
+Generate a starter host-language project around a sample NNL model.
+
+```
+nnc new <directory> --project <rust|go|cpp|python>
+```
+
+### Behavior
+
+`nnc new` creates a new directory containing:
+
+- a sample `model.nnl` configured with `io: "none"`
+- host-language boilerplate wired to the generated C ABI
+- a small build script or build file for compiling the model artifact
+- a README with run instructions
+
+### Examples
+
+```sh
+# Create a Rust starter that compiles the model from build.rs
+nnc new demo-rust --project rust
+
+# Create a Go starter with a small build script
+nnc new demo-go --project go
+
+# Create a C++ starter with a Makefile
+nnc new demo-cpp --project cpp
+
+# Create a Python starter with a shared-library wrapper
+nnc new demo-python --project python
+```
+
+---
+
 ## nnc compile
 
 Compile an NNL model to a native artifact.
