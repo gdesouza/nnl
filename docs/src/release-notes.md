@@ -1,5 +1,22 @@
 # Release Notes
 
+## [0.9.0] — 2026-05-01
+
+### Added
+
+- **New layers: LRN and FakeQuant** — Local Response Normalization (`LRN(size, alpha, beta, bias)`) for AlexNet-style models, and `FakeQuant(scale, zero_point, qmin, qmax)` for simulated quantization. Both are wired through lexer, parser, IR, shape inference, and codegen.
+- **Explicit per-side pool padding** — `MaxPool2D` and `AvgPool2D` now accept a `padding: [top, left, bottom, right]` parameter for asymmetric padding, propagated through shape inference and codegen.
+
+### Changed
+
+- **ONNX import: quantized CNN support** — `nnc import` now maps `LRN` ONNX nodes, fuses `Gemm/MatMul → (Quantize/Dequantize) → Add` bias chains, lowers `QuantizeLinear` nodes into `FakeQuant` layers, and recognizes asymmetric `pads` attributes for `Conv`, `MaxPool`, and `AveragePool` shape inference.
+- **ONNX import: tensor data decoding** — initializers stored in `int32_data` / `int64_data` (instead of `raw_data`) are now decoded correctly, fixing imports for many torch-exported quantized models.
+
+### Fixed
+
+- **ONNX `Reshape → Flatten` lowering** — `Reshape` to a `[1, N]` target shape is now lowered to `Flatten` even when the input rank is < 3, matching how PyTorch exporters serialize the post-conv flatten.
+- **ONNX `DequantizeLinear` with missing zero-point** — empty zero-point initializers are now treated as zeros instead of failing to dequantize.
+
 ## [0.8.0] — 2026-04-30
 
 ### Added
