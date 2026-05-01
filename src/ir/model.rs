@@ -130,10 +130,12 @@ pub enum LayerKind {
     MaxPool2D {
         kernel: KernelSize,
         stride: Option<usize>,
+        padding: Option<PoolPadding>,
     },
     AvgPool2D {
         kernel: KernelSize,
         stride: Option<usize>,
+        padding: Option<PoolPadding>,
     },
     Flatten,
     BatchNorm {
@@ -179,6 +181,18 @@ pub enum LayerKind {
     LayerNorm {
         epsilon: f64,
     },
+    Lrn {
+        size: usize,
+        alpha: f64,
+        beta: f64,
+        bias: f64,
+    },
+    FakeQuant {
+        scale: f64,
+        zero_point: i64,
+        qmin: i64,
+        qmax: i64,
+    },
 }
 
 impl LayerKind {
@@ -207,6 +221,8 @@ impl LayerKind {
             LayerKind::Conv1D { .. } => "Conv1D",
             LayerKind::MaxPool1D { .. } => "MaxPool1D",
             LayerKind::LayerNorm { .. } => "LayerNorm",
+            LayerKind::Lrn { .. } => "LRN",
+            LayerKind::FakeQuant { .. } => "FakeQuant",
         }
     }
 }
@@ -245,6 +261,14 @@ impl KernelSize {
 pub enum Padding {
     Valid,
     Same,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct PoolPadding {
+    pub top: usize,
+    pub left: usize,
+    pub bottom: usize,
+    pub right: usize,
 }
 
 /// A directed edge: from source layer to target layer.

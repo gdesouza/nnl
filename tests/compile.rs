@@ -1053,3 +1053,198 @@ model layernorm_test {{
         "expected ~0.0 for LayerNorm sum, got {result}"
     );
 }
+
+#[test]
+fn compile_and_run_lrn() {
+    let tmp = tempfile::tempdir().unwrap();
+    let weights_dir = tmp.path().join("weights");
+    std::fs::create_dir_all(&weights_dir).unwrap();
+
+    let model_path = tmp.path().join("model.nnl");
+    let model_src = format!(
+        r#"version 0.2;
+model lrn_test {{
+    config {{ weights: "{}"; io: "stdio"; }}
+    layer input = Input(shape: [1, 1, 3]);
+    layer norm  = LRN(size: 3, alpha: 1.0, beta: 1.0, bias: 1.0);
+}}
+"#,
+        weights_dir.display()
+    );
+    std::fs::write(&model_path, &model_src).unwrap();
+
+    let exe_path = tmp.path().join("lrn_test");
+    nnc()
+        .args([
+            "compile",
+            model_path.to_str().unwrap(),
+            "--emit",
+            "exe",
+            "-o",
+            exe_path.to_str().unwrap(),
+        ])
+        .assert()
+        .success();
+
+    let input: Vec<f32> = vec![1.0, 2.0, 3.0];
+    let input_bytes: Vec<u8> = input.iter().flat_map(|v| v.to_ne_bytes()).collect();
+
+    let output = Command::new(&exe_path)
+        .stdin(std::process::Stdio::piped())
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::piped())
+        .spawn()
+        .and_then(|mut child| {
+            use std::io::Write;
+            child.stdin.take().unwrap().write_all(&input_bytes)?;
+            child.wait_with_output()
+        })
+        .expect("failed to run lrn_test binary");
+
+    assert!(
+        output.status.success(),
+        "lrn_test failed: {:?}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert_eq!(output.stdout.len(), 12, "expected 3 float32 values");
+
+    let expected = [0.375_f32, 6.0 / 17.0, 0.5625_f32];
+    for (i, chunk) in output.stdout.chunks_exact(4).enumerate() {
+        let value = f32::from_ne_bytes(chunk.try_into().unwrap());
+        assert!(
+            (value - expected[i]).abs() < 1e-4,
+            "output[{i}] = {value}, expected ~{}",
+            expected[i]
+        );
+    }
+}
+
+#[test]
+fn compile_and_run_maxpool2d_with_explicit_padding() {
+    let tmp = tempfile::tempdir().unwrap();
+    let weights_dir = tmp.path().join("weights");
+    std::fs::create_dir_all(&weights_dir).unwrap();
+
+    let model_path = tmp.path().join("model.nnl");
+    let model_src = format!(
+        r#"version 0.2;
+model pool_pad_test {{
+    config {{ weights: "{}"; io: "stdio"; }}
+    layer input = Input(shape: [2, 2, 1]);
+    layer pool  = MaxPool2D(kernel: 2, stride: 1, padding: [1, 0, 0, 1]);
+}}
+"#,
+        weights_dir.display()
+    );
+    std::fs::write(&model_path, &model_src).unwrap();
+
+    let exe_path = tmp.path().join("pool_pad_test");
+    nnc()
+        .args([
+            "compile",
+            model_path.to_str().unwrap(),
+            "--emit",
+            "exe",
+            "-o",
+            exe_path.to_str().unwrap(),
+        ])
+        .assert()
+        .success();
+
+    let input: Vec<f32> = vec![1.0, 2.0, 3.0, 4.0];
+    let input_bytes: Vec<u8> = input.iter().flat_map(|v| v.to_ne_bytes()).collect();
+
+    let output = Command::new(&exe_path)
+        .stdin(std::process::Stdio::piped())
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::piped())
+        .spawn()
+        .and_then(|mut child| {
+            use std::io::Write;
+            child.stdin.take().unwrap().write_all(&input_bytes)?;
+            child.wait_with_output()
+        })
+        .expect("failed to run pool_pad_test binary");
+
+    assert!(
+        output.status.success(),
+        "pool_pad_test failed: {:?}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert_eq!(output.stdout.len(), 16, "expected 4 float32 values");
+
+    let expected = [2.0_f32, 2.0, 4.0, 4.0];
+    for (i, chunk) in output.stdout.chunks_exact(4).enumerate() {
+        let value = f32::from_ne_bytes(chunk.try_into().unwrap());
+        assert!(
+            (value - expected[i]).abs() < 1e-4,
+            "output[{i}] = {value}, expected ~{}",
+            expected[i]
+        );
+    }
+}
+
+#[test]
+fn compile_and_run_fake_quant() {
+    let tmp = tempfile::tempdir().unwrap();
+    let weights_dir = tmp.path().join("weights");
+    std::fs::create_dir_all(&weights_dir).unwrap();
+
+    let model_path = tmp.path().join("model.nnl");
+    let model_src = format!(
+        r#"version 0.2;
+model fake_quant_test {{
+    config {{ weights: "{}"; io: "stdio"; }}
+    layer input = Input(shape: [4]);
+    layer fq    = FakeQuant(scale: 1.0, zero_point: 0, qmin: 0, qmax: 2);
+}}
+"#,
+        weights_dir.display()
+    );
+    std::fs::write(&model_path, &model_src).unwrap();
+
+    let exe_path = tmp.path().join("fake_quant_test");
+    nnc()
+        .args([
+            "compile",
+            model_path.to_str().unwrap(),
+            "--emit",
+            "exe",
+            "-o",
+            exe_path.to_str().unwrap(),
+        ])
+        .assert()
+        .success();
+
+    let input: Vec<f32> = vec![-0.6, 0.49, 1.51, 3.2];
+    let input_bytes: Vec<u8> = input.iter().flat_map(|v| v.to_ne_bytes()).collect();
+
+    let output = Command::new(&exe_path)
+        .stdin(std::process::Stdio::piped())
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::piped())
+        .spawn()
+        .and_then(|mut child| {
+            use std::io::Write;
+            child.stdin.take().unwrap().write_all(&input_bytes)?;
+            child.wait_with_output()
+        })
+        .expect("failed to run fake_quant_test binary");
+
+    assert!(
+        output.status.success(),
+        "fake_quant_test failed: {:?}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert_eq!(output.stdout.len(), 16, "expected 4 float32 values");
+
+    let expected = [0.0_f32, 0.0, 2.0, 2.0];
+    for (i, chunk) in output.stdout.chunks_exact(4).enumerate() {
+        let value = f32::from_ne_bytes(chunk.try_into().unwrap());
+        assert!(
+            (value - expected[i]).abs() < 1e-6,
+            "output[{i}] = {value}, expected {}",
+            expected[i]
+        );
+    }
+}

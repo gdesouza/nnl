@@ -54,6 +54,10 @@ pub struct TensorProto {
     pub dims: Vec<i64>,
     #[prost(int32, tag = "2")]
     pub data_type: i32,
+    #[prost(int32, repeated, tag = "5")]
+    pub int32_data: Vec<i32>,
+    #[prost(int64, repeated, tag = "7")]
+    pub int64_data: Vec<i64>,
     #[prost(string, tag = "8")]
     pub name: String,
     #[prost(bytes, tag = "9")]

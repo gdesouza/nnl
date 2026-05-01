@@ -298,6 +298,79 @@ pub fn emit_source(
                 writeln!(c, "    }}").unwrap();
             }
 
+            LayerKind::Lrn {
+                size,
+                alpha,
+                beta,
+                bias,
+            } => {
+                let src = src_buf(&buf_plan, layer_id, model);
+                let in_shape = input_shape_for(layer_id, model, shape_info);
+                let (h, w, channels) = (in_shape[0], in_shape[1], in_shape[2]);
+                let radius = size / 2;
+                writeln!(c, "    for (int y = 0; y < {h}; y++) {{").unwrap();
+                writeln!(c, "        for (int x = 0; x < {w}; x++) {{").unwrap();
+                writeln!(c, "            for (int ch = 0; ch < {channels}; ch++) {{").unwrap();
+                writeln!(
+                    c,
+                    "                int c_start = ch > {radius} ? ch - {radius} : 0;"
+                )
+                .unwrap();
+                writeln!(
+                    c,
+                    "                int c_end = ch + {radius} + 1 < {channels} ? ch + {radius} + 1 : {channels};"
+                )
+                .unwrap();
+                writeln!(c, "                float sum = 0.0f;").unwrap();
+                writeln!(
+                    c,
+                    "                for (int i = c_start; i < c_end; i++) {{"
+                )
+                .unwrap();
+                writeln!(
+                    c,
+                    "                    float v = {src}[(y * {w} + x) * {channels} + i];"
+                )
+                .unwrap();
+                writeln!(c, "                    sum += v * v;").unwrap();
+                writeln!(c, "                }}").unwrap();
+                writeln!(
+                    c,
+                    "                float norm = powf({bias:.10}f + ({alpha:.10}f / {size}.0f) * sum, {beta:.10}f);"
+                )
+                .unwrap();
+                writeln!(
+                    c,
+                    "                {dst}[(y * {w} + x) * {channels} + ch] = {src}[(y * {w} + x) * {channels} + ch] / norm;"
+                )
+                .unwrap();
+                writeln!(c, "            }}").unwrap();
+                writeln!(c, "        }}").unwrap();
+                writeln!(c, "    }}").unwrap();
+            }
+
+            LayerKind::FakeQuant {
+                scale,
+                zero_point,
+                qmin,
+                qmax,
+            } => {
+                let src = src_buf(&buf_plan, layer_id, model);
+                writeln!(c, "    for (int i = 0; i < {out_elems}; i++) {{").unwrap();
+                writeln!(
+                    c,
+                    "        float q = nearbyintf({src}[i] / {scale:.10}f) + {zero_point}.0f;"
+                )
+                .unwrap();
+                writeln!(c, "        q = fminf(fmaxf(q, {qmin}.0f), {qmax}.0f);").unwrap();
+                writeln!(
+                    c,
+                    "        {dst}[i] = (q - {zero_point}.0f) * {scale:.10}f;"
+                )
+                .unwrap();
+                writeln!(c, "    }}").unwrap();
+            }
+
             LayerKind::Sigmoid => {
                 let src = src_buf(&buf_plan, layer_id, model);
                 writeln!(c, "    for (int i = 0; i < {out_elems}; i++) {{").unwrap();
@@ -634,14 +707,21 @@ pub fn emit_source(
                 }
             }
 
-            LayerKind::MaxPool2D { kernel, stride } => {
+            LayerKind::MaxPool2D {
+                kernel,
+                stride,
+                padding,
+            } => {
                 let src = src_buf(&buf_plan, layer_id, model);
                 let in_shape = input_shape_for(layer_id, model, shape_info);
-                let (iw_dim, channels) = (in_shape[1], in_shape[2]);
+                let (ih_dim, iw_dim, channels) = (in_shape[0], in_shape[1], in_shape[2]);
                 let kh = kernel.height();
                 let kw = kernel.width();
                 let s = stride.unwrap_or(kh);
                 let (oh, ow) = (out_shape[0], out_shape[1]);
+                let (pt, pl, _, _) = padding
+                    .map(|p| (p.top, p.left, p.bottom, p.right))
+                    .unwrap_or((0, 0, 0, 0));
 
                 writeln!(c, "    for (int oh = 0; oh < {oh}; oh++) {{").unwrap();
                 writeln!(c, "      for (int ow_ = 0; ow_ < {ow}; ow_++) {{").unwrap();
@@ -649,8 +729,13 @@ pub fn emit_source(
                 writeln!(c, "          float mv = -1e38f;").unwrap();
                 writeln!(c, "          for (int kh_ = 0; kh_ < {kh}; kh_++) {{").unwrap();
                 writeln!(c, "            for (int kw_ = 0; kw_ < {kw}; kw_++) {{").unwrap();
-                writeln!(c, "              int ih_ = oh * {s} + kh_;").unwrap();
-                writeln!(c, "              int iw_ = ow_ * {s} + kw_;").unwrap();
+                writeln!(c, "              int ih_ = oh * {s} + kh_ - {pt};").unwrap();
+                writeln!(c, "              int iw_ = ow_ * {s} + kw_ - {pl};").unwrap();
+                writeln!(
+                    c,
+                    "              if (ih_ < 0 || ih_ >= {ih_dim} || iw_ < 0 || iw_ >= {iw_dim}) continue;"
+                )
+                .unwrap();
                 writeln!(
                     c,
                     "              float v = {src}[(ih_ * {iw_dim} + iw_) * {channels} + ch];"
@@ -669,34 +754,47 @@ pub fn emit_source(
                 writeln!(c, "    }}").unwrap();
             }
 
-            LayerKind::AvgPool2D { kernel, stride } => {
+            LayerKind::AvgPool2D {
+                kernel,
+                stride,
+                padding,
+            } => {
                 let src = src_buf(&buf_plan, layer_id, model);
                 let in_shape = input_shape_for(layer_id, model, shape_info);
-                let (iw_dim, channels) = (in_shape[1], in_shape[2]);
+                let (ih_dim, iw_dim, channels) = (in_shape[0], in_shape[1], in_shape[2]);
                 let kh = kernel.height();
                 let kw = kernel.width();
                 let s = stride.unwrap_or(kh);
                 let (oh, ow) = (out_shape[0], out_shape[1]);
-                let pool_size = kh * kw;
+                let (pt, pl, _, _) = padding
+                    .map(|p| (p.top, p.left, p.bottom, p.right))
+                    .unwrap_or((0, 0, 0, 0));
 
                 writeln!(c, "    for (int oh = 0; oh < {oh}; oh++) {{").unwrap();
                 writeln!(c, "      for (int ow_ = 0; ow_ < {ow}; ow_++) {{").unwrap();
                 writeln!(c, "        for (int ch = 0; ch < {channels}; ch++) {{").unwrap();
                 writeln!(c, "          float s = 0.0f;").unwrap();
+                writeln!(c, "          int count = 0;").unwrap();
                 writeln!(c, "          for (int kh_ = 0; kh_ < {kh}; kh_++) {{").unwrap();
                 writeln!(c, "            for (int kw_ = 0; kw_ < {kw}; kw_++) {{").unwrap();
-                writeln!(c, "              int ih_ = oh * {s} + kh_;").unwrap();
-                writeln!(c, "              int iw_ = ow_ * {s} + kw_;").unwrap();
+                writeln!(c, "              int ih_ = oh * {s} + kh_ - {pt};").unwrap();
+                writeln!(c, "              int iw_ = ow_ * {s} + kw_ - {pl};").unwrap();
+                writeln!(
+                    c,
+                    "              if (ih_ < 0 || ih_ >= {ih_dim} || iw_ < 0 || iw_ >= {iw_dim}) continue;"
+                )
+                .unwrap();
                 writeln!(
                     c,
                     "              s += {src}[(ih_ * {iw_dim} + iw_) * {channels} + ch];"
                 )
                 .unwrap();
+                writeln!(c, "              count++; ").unwrap();
                 writeln!(c, "            }}").unwrap();
                 writeln!(c, "          }}").unwrap();
                 writeln!(
                     c,
-                    "          {dst}[(oh * {ow} + ow_) * {channels} + ch] = s / {pool_size}.0f;"
+                    "          {dst}[(oh * {ow} + ow_) * {channels} + ch] = count > 0 ? s / (float)count : 0.0f;"
                 )
                 .unwrap();
                 writeln!(c, "        }}").unwrap();

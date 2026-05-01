@@ -219,12 +219,22 @@ fn lower_layer(layer: &ast::LayerDecl) -> Result<Layer, LowerError> {
         ast::LayerType::MaxPool2D => {
             let kernel = get_required_kernel_param(&layer.params, "kernel", &layer.span)?;
             let stride = get_optional_usize_param(&layer.params, "stride")?;
-            LayerKind::MaxPool2D { kernel, stride }
+            let padding = get_optional_pool_padding_param(&layer.params, "padding")?;
+            LayerKind::MaxPool2D {
+                kernel,
+                stride,
+                padding,
+            }
         }
         ast::LayerType::AvgPool2D => {
             let kernel = get_required_kernel_param(&layer.params, "kernel", &layer.span)?;
             let stride = get_optional_usize_param(&layer.params, "stride")?;
-            LayerKind::AvgPool2D { kernel, stride }
+            let padding = get_optional_pool_padding_param(&layer.params, "padding")?;
+            LayerKind::AvgPool2D {
+                kernel,
+                stride,
+                padding,
+            }
         }
         ast::LayerType::Flatten => LayerKind::Flatten,
         ast::LayerType::BatchNorm => {
@@ -294,6 +304,30 @@ fn lower_layer(layer: &ast::LayerDecl) -> Result<Layer, LowerError> {
         ast::LayerType::LayerNorm => {
             let epsilon = get_optional_float_param(&layer.params, "epsilon")?.unwrap_or(1e-5);
             LayerKind::LayerNorm { epsilon }
+        }
+        ast::LayerType::Lrn => {
+            let size = get_required_usize_param(&layer.params, "size", &layer.span)?;
+            let alpha = get_optional_float_param(&layer.params, "alpha")?.unwrap_or(1e-4);
+            let beta = get_optional_float_param(&layer.params, "beta")?.unwrap_or(0.75);
+            let bias = get_optional_float_param(&layer.params, "bias")?.unwrap_or(1.0);
+            LayerKind::Lrn {
+                size,
+                alpha,
+                beta,
+                bias,
+            }
+        }
+        ast::LayerType::FakeQuant => {
+            let scale = get_required_float_param(&layer.params, "scale", &layer.span)?;
+            let zero_point = get_required_int_param(&layer.params, "zero_point", &layer.span)?;
+            let qmin = get_required_int_param(&layer.params, "qmin", &layer.span)?;
+            let qmax = get_required_int_param(&layer.params, "qmax", &layer.span)?;
+            LayerKind::FakeQuant {
+                scale,
+                zero_point,
+                qmin,
+                qmax,
+            }
         }
     };
 
@@ -470,6 +504,64 @@ fn get_optional_int_param(params: &[ast::Param], name: &str) -> Result<Option<i6
             }),
         },
         None => Ok(None),
+    }
+}
+
+fn get_required_float_param(
+    params: &[ast::Param],
+    name: &str,
+    layer_span: &Span,
+) -> Result<f64, LowerError> {
+    match get_optional_float_param(params, name)? {
+        Some(value) => Ok(value),
+        None => Err(LowerError {
+            message: format!("missing required parameter `{name}`"),
+            span: layer_span.clone(),
+        }),
+    }
+}
+
+fn get_required_int_param(
+    params: &[ast::Param],
+    name: &str,
+    layer_span: &Span,
+) -> Result<i64, LowerError> {
+    match get_optional_int_param(params, name)? {
+        Some(value) => Ok(value),
+        None => Err(LowerError {
+            message: format!("missing required parameter `{name}`"),
+            span: layer_span.clone(),
+        }),
+    }
+}
+
+fn get_optional_pool_padding_param(
+    params: &[ast::Param],
+    name: &str,
+) -> Result<Option<PoolPadding>, LowerError> {
+    let Some(param) = find_param(params, name) else {
+        return Ok(None);
+    };
+    match &param.value {
+        ast::Value::Shape(nums, span) => {
+            if nums.len() != 4 {
+                return Err(LowerError {
+                    message: "pool padding must have exactly 4 values [top, left, bottom, right]"
+                        .to_string(),
+                    span: span.clone(),
+                });
+            }
+            Ok(Some(PoolPadding {
+                top: nums[0] as usize,
+                left: nums[1] as usize,
+                bottom: nums[2] as usize,
+                right: nums[3] as usize,
+            }))
+        }
+        other => Err(LowerError {
+            message: "expected shape value for pool padding".to_string(),
+            span: other.span().clone(),
+        }),
     }
 }
 

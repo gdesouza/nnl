@@ -123,6 +123,8 @@ pub enum LayerType {
     Conv1D,
     MaxPool1D,
     LayerNorm,
+    Lrn,
+    FakeQuant,
 }
 
 impl std::fmt::Display for LayerType {
@@ -151,6 +153,8 @@ impl std::fmt::Display for LayerType {
             LayerType::Conv1D => write!(f, "Conv1D"),
             LayerType::MaxPool1D => write!(f, "MaxPool1D"),
             LayerType::LayerNorm => write!(f, "LayerNorm"),
+            LayerType::Lrn => write!(f, "LRN"),
+            LayerType::FakeQuant => write!(f, "FakeQuant"),
         }
     }
 }

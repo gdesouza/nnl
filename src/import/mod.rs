@@ -167,8 +167,10 @@ pub fn import_onnx(
                     let kh = tensor.dims[2];
                     let kw = tensor.dims[3];
                     let mut stride: i64 = 1;
-                    let mut pad_h: i64 = 0;
-                    let mut pad_w: i64 = 0;
+                    let mut pad_top: i64 = 0;
+                    let mut pad_left: i64 = 0;
+                    let mut pad_bottom: i64 = 0;
+                    let mut pad_right: i64 = 0;
                     for attr in &node.attribute {
                         match attr.name.as_str() {
                             "strides" => {
@@ -176,15 +178,17 @@ pub fn import_onnx(
                                     stride = s;
                                 }
                             }
-                            "pads" if attr.ints.len() >= 2 => {
-                                pad_h = attr.ints[0];
-                                pad_w = attr.ints[1];
+                            "pads" if attr.ints.len() >= 4 => {
+                                pad_top = attr.ints[0];
+                                pad_left = attr.ints[1];
+                                pad_bottom = attr.ints[2];
+                                pad_right = attr.ints[3];
                             }
                             _ => {}
                         }
                     }
-                    let oh = (in_dims[2] + 2 * pad_h - kh) / stride + 1;
-                    let ow = (in_dims[3] + 2 * pad_w - kw) / stride + 1;
+                    let oh = (in_dims[2] + pad_top + pad_bottom - kh) / stride + 1;
+                    let ow = (in_dims[3] + pad_left + pad_right - kw) / stride + 1;
                     for out in &node.output {
                         tensor_shapes.insert(out.clone(), vec![in_dims[0], filters, oh, ow]);
                     }
@@ -197,8 +201,10 @@ pub fn import_onnx(
                 {
                     let mut kernel: i64 = 2;
                     let mut stride: i64 = 2;
-                    let mut pad_h: i64 = 0;
-                    let mut pad_w: i64 = 0;
+                    let mut pad_top: i64 = 0;
+                    let mut pad_left: i64 = 0;
+                    let mut pad_bottom: i64 = 0;
+                    let mut pad_right: i64 = 0;
                     for attr in &node.attribute {
                         match attr.name.as_str() {
                             "kernel_shape" => {
@@ -211,15 +217,17 @@ pub fn import_onnx(
                                     stride = s;
                                 }
                             }
-                            "pads" if attr.ints.len() >= 2 => {
-                                pad_h = attr.ints[0];
-                                pad_w = attr.ints[1];
+                            "pads" if attr.ints.len() >= 4 => {
+                                pad_top = attr.ints[0];
+                                pad_left = attr.ints[1];
+                                pad_bottom = attr.ints[2];
+                                pad_right = attr.ints[3];
                             }
                             _ => {}
                         }
                     }
-                    let oh = (in_dims[2] + 2 * pad_h - kernel) / stride + 1;
-                    let ow = (in_dims[3] + 2 * pad_w - kernel) / stride + 1;
+                    let oh = (in_dims[2] + pad_top + pad_bottom - kernel) / stride + 1;
+                    let ow = (in_dims[3] + pad_left + pad_right - kernel) / stride + 1;
                     for out in &node.output {
                         tensor_shapes.insert(out.clone(), vec![in_dims[0], in_dims[1], oh, ow]);
                     }
@@ -259,7 +267,7 @@ pub fn import_onnx(
                 }
             }
             "Relu" | "Sigmoid" | "BatchNormalization" | "Dropout" | "Add" | "Mul" | "Softmax"
-            | "QuantizeLinear" | "DequantizeLinear" => {
+            | "LRN" | "QuantizeLinear" | "DequantizeLinear" => {
                 // Shape-preserving ops: propagate input shape
                 if let Some(inp_name) = node.input.first()
                     && let Some(dims) = tensor_shapes.get(inp_name.as_str()).cloned()
@@ -286,7 +294,7 @@ pub fn import_onnx(
             &mut layer_counter,
             &flatten_shapes,
             &tensor_shapes,
-            fused_bias.as_deref(),
+            fused_bias.as_ref().map(|fusion| fusion.bias_name.as_str()),
         )?;
 
         if let Some(def) = layer_def {
@@ -339,13 +347,18 @@ pub fn import_onnx(
             for out in &node.output {
                 output_map.insert(out.clone(), layer_id.clone());
             }
-            if let Some(next_index) = fused_bias.as_ref().and_then(|_| node_index.checked_add(1))
-                && let Some(add_node) = graph.node.get(next_index)
-            {
-                for out in &add_node.output {
+            if let Some(fusion) = &fused_bias {
+                for &skip_index in &fusion.skip_node_indexes {
+                    if let Some(skip_node) = graph.node.get(skip_index) {
+                        for out in &skip_node.output {
+                            output_map.insert(out.clone(), layer_id.clone());
+                        }
+                    }
+                    skip_nodes.insert(skip_index);
+                }
+                for out in &fusion.final_output_names {
                     output_map.insert(out.clone(), layer_id.clone());
                 }
-                skip_nodes.insert(next_index);
             }
 
             // Build connections from ONNX inputs
@@ -469,6 +482,13 @@ struct WeightRef {
 struct ResolvedTensor {
     dims: Vec<i64>,
     data: Vec<f32>,
+    data_type: i32,
+}
+
+struct BiasFusion {
+    bias_name: String,
+    skip_node_indexes: Vec<usize>,
+    final_output_names: Vec<String>,
 }
 
 fn map_node(
@@ -721,6 +741,7 @@ fn map_node(
         "MaxPool" => {
             let mut kernel = 2;
             let mut stride = None;
+            let mut padding = None;
             for attr in &node.attribute {
                 match attr.name.as_str() {
                     "kernel_shape" => {
@@ -733,19 +754,29 @@ fn map_node(
                             stride = Some(s as usize);
                         }
                     }
+                    "pads" if attr.ints.len() >= 4 => {
+                        padding = Some(format!(
+                            ", padding: [{}, {}, {}, {}]",
+                            attr.ints[0], attr.ints[1], attr.ints[2], attr.ints[3]
+                        ));
+                    }
                     _ => {}
                 }
             }
             let stride_str = stride.map(|s| format!(", stride: {s}")).unwrap_or_default();
+            let padding_str = padding.unwrap_or_default();
             Ok((
                 layer_id,
-                Some(format!("MaxPool2D(kernel: {kernel}{stride_str})")),
+                Some(format!(
+                    "MaxPool2D(kernel: {kernel}{stride_str}{padding_str})"
+                )),
                 Vec::new(),
             ))
         }
         "AveragePool" => {
             let mut kernel = 2;
             let mut stride = None;
+            let mut padding = None;
             for attr in &node.attribute {
                 match attr.name.as_str() {
                     "kernel_shape" => {
@@ -758,19 +789,39 @@ fn map_node(
                             stride = Some(s as usize);
                         }
                     }
+                    "pads" if attr.ints.len() >= 4 => {
+                        padding = Some(format!(
+                            ", padding: [{}, {}, {}, {}]",
+                            attr.ints[0], attr.ints[1], attr.ints[2], attr.ints[3]
+                        ));
+                    }
                     _ => {}
                 }
             }
             let stride_str = stride.map(|s| format!(", stride: {s}")).unwrap_or_default();
+            let padding_str = padding.unwrap_or_default();
             Ok((
                 layer_id,
-                Some(format!("AvgPool2D(kernel: {kernel}{stride_str})")),
+                Some(format!(
+                    "AvgPool2D(kernel: {kernel}{stride_str}{padding_str})"
+                )),
                 Vec::new(),
             ))
         }
         "Flatten" => Ok((layer_id, Some("Flatten()".to_string()), Vec::new())),
         "Reshape" if should_lower_reshape_to_flatten(node, tensor_shapes, resolved_tensors) => {
             Ok((layer_id, Some("Flatten()".to_string()), Vec::new()))
+        }
+        "QuantizeLinear" if quantize_node_params(node, resolved_tensors).is_some() => {
+            let (scale, zero_point, qmin, qmax) =
+                quantize_node_params(node, resolved_tensors).unwrap();
+            Ok((
+                layer_id,
+                Some(format!(
+                    "FakeQuant(scale: {scale}, zero_point: {zero_point}, qmin: {qmin}, qmax: {qmax})"
+                )),
+                Vec::new(),
+            ))
         }
         "BatchNormalization" => {
             let mut weights = Vec::new();
@@ -788,6 +839,39 @@ fn map_node(
                 }
             }
             Ok((layer_id, Some("BatchNorm()".to_string()), weights))
+        }
+        "LRN" => {
+            let size = node
+                .attribute
+                .iter()
+                .find(|a| a.name == "size")
+                .map(|a| a.i as usize)
+                .unwrap_or(1);
+            let alpha = node
+                .attribute
+                .iter()
+                .find(|a| a.name == "alpha")
+                .map(|a| a.f)
+                .unwrap_or(1e-4);
+            let beta = node
+                .attribute
+                .iter()
+                .find(|a| a.name == "beta")
+                .map(|a| a.f)
+                .unwrap_or(0.75);
+            let bias = node
+                .attribute
+                .iter()
+                .find(|a| a.name == "bias")
+                .map(|a| a.f)
+                .unwrap_or(1.0);
+            Ok((
+                layer_id,
+                Some(format!(
+                    "LRN(size: {size}, alpha: {alpha}, beta: {beta}, bias: {bias})"
+                )),
+                Vec::new(),
+            ))
         }
         "Dropout" => {
             let mut ratio = 0.5f32;
@@ -935,6 +1019,7 @@ fn build_resolved_tensors(
             ResolvedTensor {
                 dims: tensor.dims.clone(),
                 data: decode_tensor_data(tensor, onnx_dir)?,
+                data_type: tensor.data_type,
             },
         );
     }
@@ -973,6 +1058,7 @@ fn build_resolved_tensors(
             ResolvedTensor {
                 dims: input_tensor.dims,
                 data,
+                data_type: 1,
             },
         );
     }
@@ -983,18 +1069,46 @@ fn build_resolved_tensors(
 fn decode_tensor_data(tensor: &TensorProto, onnx_dir: &Path) -> Result<Vec<f32>, ImportError> {
     match tensor.data_type {
         1 => Ok(tensor.to_f32_vec(onnx_dir)),
-        2 => Ok(tensor.raw_data.iter().map(|&v| v as f32).collect()),
-        3 => Ok(tensor.raw_data.iter().map(|&v| (v as i8) as f32).collect()),
-        6 => Ok(tensor
-            .raw_data
-            .chunks_exact(4)
-            .map(|c| i32::from_le_bytes(c.try_into().unwrap()) as f32)
-            .collect()),
-        7 => Ok(tensor
-            .raw_data
-            .chunks_exact(8)
-            .map(|c| i64::from_le_bytes(c.try_into().unwrap()) as f32)
-            .collect()),
+        2 => {
+            if !tensor.raw_data.is_empty() {
+                Ok(tensor.raw_data.iter().map(|&v| v as f32).collect())
+            } else {
+                Ok(tensor.int32_data.iter().map(|&v| v as f32).collect())
+            }
+        }
+        3 => {
+            if !tensor.raw_data.is_empty() {
+                Ok(tensor.raw_data.iter().map(|&v| (v as i8) as f32).collect())
+            } else {
+                Ok(tensor
+                    .int32_data
+                    .iter()
+                    .map(|&v| (v as i8) as f32)
+                    .collect())
+            }
+        }
+        6 => {
+            if !tensor.raw_data.is_empty() {
+                Ok(tensor
+                    .raw_data
+                    .chunks_exact(4)
+                    .map(|c| i32::from_le_bytes(c.try_into().unwrap()) as f32)
+                    .collect())
+            } else {
+                Ok(tensor.int32_data.iter().map(|&v| v as f32).collect())
+            }
+        }
+        7 => {
+            if !tensor.raw_data.is_empty() {
+                Ok(tensor
+                    .raw_data
+                    .chunks_exact(8)
+                    .map(|c| i64::from_le_bytes(c.try_into().unwrap()) as f32)
+                    .collect())
+            } else {
+                Ok(tensor.int64_data.iter().map(|&v| v as f32).collect())
+            }
+        }
         other => Err(ImportError {
             message: format!(
                 "unsupported ONNX tensor data type {other} for `{}`",
@@ -1019,7 +1133,12 @@ fn dequantize_tensor(
 
     let zeros_storage;
     let zeros = if let Some(zp) = zero_points {
-        zp
+        if zp.is_empty() {
+            zeros_storage = vec![0.0f32; scales.len()];
+            &zeros_storage
+        } else {
+            zp
+        }
     } else {
         zeros_storage = vec![0.0f32; scales.len()];
         &zeros_storage
@@ -1106,15 +1225,6 @@ fn should_lower_reshape_to_flatten(
     tensor_shapes: &HashMap<String, Vec<i64>>,
     resolved_tensors: &HashMap<String, ResolvedTensor>,
 ) -> bool {
-    let Some(input_name) = node.input.first() else {
-        return false;
-    };
-    let Some(input_shape) = tensor_shapes.get(input_name.as_str()) else {
-        return false;
-    };
-    if input_shape.len() < 3 {
-        return false;
-    }
     let Some(shape_name) = node.input.get(1) else {
         return false;
     };
@@ -1129,33 +1239,101 @@ fn should_lower_reshape_to_flatten(
     if target_dims.len() != 2 {
         return false;
     }
+    if target_dims[0] == 1 && target_dims[1] > 0 {
+        return true;
+    }
+    let Some(input_name) = node.input.first() else {
+        return target_dims[0] == 1;
+    };
+    let Some(input_shape) = tensor_shapes.get(input_name.as_str()) else {
+        return target_dims[0] == 1;
+    };
+    if input_shape.len() < 3 {
+        return false;
+    }
     let batch = input_shape[0];
     let flattened: i64 = input_shape.iter().skip(1).product();
     (target_dims[0] == batch || target_dims[0] == 1) && target_dims[1] == flattened
+}
+
+fn quantize_node_params(
+    node: &NodeProto,
+    resolved_tensors: &HashMap<String, ResolvedTensor>,
+) -> Option<(f64, i64, i64, i64)> {
+    let scale = resolved_tensors.get(node.input.get(1)?.as_str())?;
+    let zero_point = resolved_tensors.get(node.input.get(2)?.as_str())?;
+    let &scale_value = scale.data.first()?;
+    let &zero_point_value = zero_point.data.first()?;
+    let (qmin, qmax) = match zero_point.data_type {
+        2 => (0, 255),
+        3 => (-128, 127),
+        _ => return None,
+    };
+    Some((scale_value as f64, zero_point_value as i64, qmin, qmax))
 }
 
 fn find_fusable_add_bias(
     node_index: usize,
     nodes: &[NodeProto],
     resolved_tensors: &HashMap<String, ResolvedTensor>,
-) -> Option<String> {
+) -> Option<BiasFusion> {
     let node = nodes.get(node_index)?;
     if !matches!(node.op_type.as_str(), "Gemm" | "MatMul") {
         return None;
     }
-    let next = nodes.get(node_index + 1)?;
-    if next.op_type != "Add" || node.output.len() != 1 {
+    let output_name = node.output.first()?;
+    let (current_output, mut skip_indexes, add_index) =
+        follow_passthrough_chain(output_name, node_index, nodes)?;
+    let next = nodes.get(add_index)?;
+    if next.op_type != "Add" {
         return None;
     }
-    let output_name = node.output.first()?;
     let left = next.input.first()?;
     let right = next.input.get(1)?;
-    if left == output_name && resolved_tensors.contains_key(right.as_str()) {
-        return Some(right.clone());
+    if left == &current_output && resolved_tensors.contains_key(right.as_str()) {
+        skip_indexes.push(add_index);
+        return Some(BiasFusion {
+            bias_name: right.clone(),
+            skip_node_indexes: skip_indexes,
+            final_output_names: next.output.clone(),
+        });
     }
-    if right == output_name && resolved_tensors.contains_key(left.as_str()) {
-        return Some(left.clone());
+    if right == &current_output && resolved_tensors.contains_key(left.as_str()) {
+        skip_indexes.push(add_index);
+        return Some(BiasFusion {
+            bias_name: left.clone(),
+            skip_node_indexes: skip_indexes,
+            final_output_names: next.output.clone(),
+        });
     }
+    None
+}
+
+fn follow_passthrough_chain(
+    output_name: &str,
+    start_index: usize,
+    nodes: &[NodeProto],
+) -> Option<(String, Vec<usize>, usize)> {
+    let mut current_output = output_name.to_string();
+    let mut skip_indexes = Vec::new();
+    let mut index = start_index + 1;
+
+    while let Some(node) = nodes.get(index) {
+        if matches!(node.op_type.as_str(), "QuantizeLinear" | "DequantizeLinear")
+            && node
+                .input
+                .first()
+                .is_some_and(|input| input == &current_output)
+            && node.output.len() == 1
+        {
+            current_output = node.output[0].clone();
+            skip_indexes.push(index);
+            index += 1;
+            continue;
+        }
+        return Some((current_output, skip_indexes, index));
+    }
+
     None
 }
 
@@ -1190,6 +1368,7 @@ fn make_layer_id(node: &NodeProto, op: &str, counter: &mut HashMap<String, usize
         "Mul" => "mul",
         "HardSwish" => "hardswish",
         "LayerNormalization" => "ln",
+        "LRN" => "lrn",
         "Upsample" => "upsample",
         "Resize" => "resize",
         other => other,
@@ -1403,6 +1582,7 @@ mod tests {
                         &[
                             ints_attr("kernel_shape", &[3, 3]),
                             ints_attr("strides", &[2, 2]),
+                            ints_attr("pads", &[0, 0, 2, 2]),
                         ],
                     ),
                     node(
@@ -1418,7 +1598,7 @@ mod tests {
 
         let imported = import_model_to_string(&model).unwrap();
         assert!(imported.contains("Input(shape: [8, 8, 3])"));
-        assert!(imported.contains("MaxPool2D(kernel: 3, stride: 2)"));
+        assert!(imported.contains("MaxPool2D(kernel: 3, stride: 2, padding: [0, 0, 2, 2])"));
         assert!(imported.contains("Concat(axis: 2)"));
     }
 
@@ -1524,6 +1704,35 @@ mod tests {
         assert!(!imported.contains("layer bias_add = Add()"));
     }
 
+    #[test]
+    fn import_maps_lrn_node() {
+        let model = ModelProto {
+            ir_version: 8,
+            opset_import: Vec::new(),
+            graph: Some(GraphProto {
+                name: "lrn_model".to_string(),
+                input: vec![value_info("input", &[1, 3, 4, 4])],
+                output: Vec::new(),
+                initializer: Vec::new(),
+                node: vec![node(
+                    "norm",
+                    "LRN",
+                    &["input"],
+                    &["norm_out"],
+                    &[
+                        int_attr("size", 5),
+                        float_attr("alpha", 0.0002),
+                        float_attr("beta", 0.5),
+                        float_attr("bias", 2.0),
+                    ],
+                )],
+            }),
+        };
+
+        let imported = import_model_to_string(&model).unwrap();
+        assert!(imported.contains("LRN(size: 5, alpha: 0.0002, beta: 0.5, bias: 2)"));
+    }
+
     fn import_model_to_string(model: &ModelProto) -> Result<String, ImportError> {
         let tmp = tempdir().unwrap();
         let onnx_path = tmp.path().join("model.onnx");
@@ -1558,6 +1767,8 @@ mod tests {
         TensorProto {
             dims: dims.to_vec(),
             data_type: 1,
+            int32_data: Vec::new(),
+            int64_data: Vec::new(),
             name: name.to_string(),
             raw_data: data.iter().flat_map(|value| value.to_le_bytes()).collect(),
             float_data: Vec::new(),
@@ -1570,6 +1781,8 @@ mod tests {
         TensorProto {
             dims: dims.to_vec(),
             data_type: 2,
+            int32_data: data.iter().map(|&value| value as i32).collect(),
+            int64_data: Vec::new(),
             name: name.to_string(),
             raw_data: data.to_vec(),
             float_data: Vec::new(),
@@ -1582,6 +1795,8 @@ mod tests {
         TensorProto {
             dims: dims.to_vec(),
             data_type: 7,
+            int32_data: Vec::new(),
+            int64_data: data.to_vec(),
             name: name.to_string(),
             raw_data: data.iter().flat_map(|value| value.to_le_bytes()).collect(),
             float_data: Vec::new(),
@@ -1623,6 +1838,18 @@ mod tests {
             name: name.to_string(),
             f: 0.0,
             i: value,
+            s: Vec::new(),
+            floats: Vec::new(),
+            ints: Vec::new(),
+            r#type: 0,
+        }
+    }
+
+    fn float_attr(name: &str, value: f32) -> AttributeProto {
+        AttributeProto {
+            name: name.to_string(),
+            f: value,
+            i: 0,
             s: Vec::new(),
             floats: Vec::new(),
             ints: Vec::new(),

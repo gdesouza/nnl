@@ -83,7 +83,16 @@ fn compute_output_shape(
             Ok(vec![oh, ow, *filters])
         }
 
-        LayerKind::MaxPool2D { kernel, stride } | LayerKind::AvgPool2D { kernel, stride } => {
+        LayerKind::MaxPool2D {
+            kernel,
+            stride,
+            padding,
+        }
+        | LayerKind::AvgPool2D {
+            kernel,
+            stride,
+            padding,
+        } => {
             let input = get_single_input_shape(&layer.id, model, shapes)?;
             if input.len() != 3 {
                 return Err(ShapeError {
@@ -98,8 +107,11 @@ fn compute_output_shape(
             let kh = kernel.height();
             let kw = kernel.width();
             let s = stride.unwrap_or(kh); // default stride = kernel size
-            let oh = (h - kh) / s + 1;
-            let ow = (w - kw) / s + 1;
+            let (pt, pl, pb, pr) = padding
+                .map(|p| (p.top, p.left, p.bottom, p.right))
+                .unwrap_or((0, 0, 0, 0));
+            let oh = (h + pt + pb - kh) / s + 1;
+            let ow = (w + pl + pr - kw) / s + 1;
             Ok(vec![oh, ow, c])
         }
 
@@ -131,6 +143,8 @@ fn compute_output_shape(
         | LayerKind::SiLU
         | LayerKind::Hardswish
         | LayerKind::LayerNorm { .. }
+        | LayerKind::Lrn { .. }
+        | LayerKind::FakeQuant { .. }
         | LayerKind::Sigmoid
         | LayerKind::Softmax { .. } => {
             // Identity shape
