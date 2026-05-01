@@ -1,6 +1,6 @@
 pub mod onnx;
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::fs::{self, File};
 use std::io;
 use std::path::Path;
@@ -65,6 +65,11 @@ pub fn import_onnx(
         .map(|t| (t.name.as_str(), t))
         .collect();
 
+    // Resolve the directory containing the ONNX file (for external data)
+    let onnx_dir = onnx_path.parent().unwrap_or(Path::new(".")).to_path_buf();
+
+    let resolved_tensors = build_resolved_tensors(&graph.node, &initializers, &onnx_dir)?;
+
     // Detect input shape from graph inputs (skip initializers)
     let input_shape = detect_input_shape(graph);
 
@@ -86,9 +91,6 @@ pub fn import_onnx(
         id: "input".to_string(),
         def: format!("Input(shape: [{}])", input_shape.join(", ")),
     });
-
-    // Resolve the directory containing the ONNX file (for external data)
-    let onnx_dir = onnx_path.parent().unwrap_or(Path::new(".")).to_path_buf();
 
     // Create weights dir
     fs::create_dir_all(weights_dir)?;
@@ -133,10 +135,30 @@ pub fn import_onnx(
                     }
                 }
             }
+            "Reshape" => {
+                if should_lower_reshape_to_flatten(node, &tensor_shapes, &resolved_tensors)
+                    && let Some(inp_name) = node.input.first()
+                    && let Some(in_dims) = tensor_shapes.get(inp_name.as_str()).cloned()
+                    && !in_dims.is_empty()
+                {
+                    let flattened: i64 = in_dims.iter().skip(1).product();
+                    for out in &node.output {
+                        flatten_shapes.insert(
+                            out.clone(),
+                            (
+                                in_dims.get(1).copied().unwrap_or(1) as usize,
+                                in_dims.get(2).copied().unwrap_or(1) as usize,
+                                in_dims.get(3).copied().unwrap_or(1) as usize,
+                            ),
+                        );
+                        tensor_shapes.insert(out.clone(), vec![in_dims[0], flattened]);
+                    }
+                }
+            }
             "Conv" => {
                 // Propagate output shape: [N, filters, OH, OW]
                 if let Some(w_name) = node.input.get(1)
-                    && let Some(tensor) = initializers.get(w_name.as_str())
+                    && let Some(tensor) = resolved_tensors.get(w_name.as_str())
                     && let Some(inp_name) = node.input.first()
                     && let Some(in_dims) = tensor_shapes.get(inp_name.as_str()).cloned()
                     && in_dims.len() == 4
@@ -203,7 +225,41 @@ pub fn import_onnx(
                     }
                 }
             }
-            "Relu" | "Sigmoid" | "BatchNormalization" | "Dropout" => {
+            "Concat" => {
+                let Some(first_input) = node.input.first() else {
+                    continue;
+                };
+                let Some(mut out_dims) = tensor_shapes.get(first_input.as_str()).cloned() else {
+                    continue;
+                };
+                let Some(axis) = remap_axis_for_shape(node, &out_dims) else {
+                    continue;
+                };
+                let axis = normalize_axis(axis, out_dims.len());
+                for inp_name in node.input.iter().skip(1) {
+                    let Some(shape) = tensor_shapes.get(inp_name.as_str()) else {
+                        continue;
+                    };
+                    if shape.len() == out_dims.len() {
+                        out_dims[axis] += shape[axis];
+                    }
+                }
+                for out in &node.output {
+                    tensor_shapes.insert(out.clone(), out_dims.clone());
+                }
+            }
+            "GlobalAveragePool" => {
+                if let Some(inp_name) = node.input.first()
+                    && let Some(in_dims) = tensor_shapes.get(inp_name.as_str()).cloned()
+                    && in_dims.len() == 4
+                {
+                    for out in &node.output {
+                        tensor_shapes.insert(out.clone(), vec![in_dims[0], in_dims[1], 1, 1]);
+                    }
+                }
+            }
+            "Relu" | "Sigmoid" | "BatchNormalization" | "Dropout" | "Add" | "Mul" | "Softmax"
+            | "QuantizeLinear" | "DequantizeLinear" => {
                 // Shape-preserving ops: propagate input shape
                 if let Some(inp_name) = node.input.first()
                     && let Some(dims) = tensor_shapes.get(inp_name.as_str()).cloned()
@@ -217,20 +273,39 @@ pub fn import_onnx(
         }
     }
 
-    for node in &graph.node {
-        let (layer_id, layer_def, weight_info) =
-            map_node(node, &initializers, &mut layer_counter, &flatten_shapes)?;
+    let mut skip_nodes = HashSet::new();
+    for (node_index, node) in graph.node.iter().enumerate() {
+        if skip_nodes.contains(&node_index) {
+            continue;
+        }
+
+        let fused_bias = find_fusable_add_bias(node_index, &graph.node, &resolved_tensors);
+        let (layer_id, layer_def, weight_info) = map_node(
+            node,
+            &resolved_tensors,
+            &mut layer_counter,
+            &flatten_shapes,
+            &tensor_shapes,
+            fused_bias.as_deref(),
+        )?;
 
         if let Some(def) = layer_def {
             // Write weights
             for wi in &weight_info {
-                let tensor = initializers.get(wi.initializer_name.as_str()).unwrap();
-                let data = tensor.to_f32_vec(&onnx_dir);
+                let tensor = resolved_tensors
+                    .get(wi.tensor_name.as_str())
+                    .ok_or_else(|| ImportError {
+                        message: format!(
+                            "missing resolved tensor '{}' for layer '{}'",
+                            wi.tensor_name, layer_id
+                        ),
+                    })?;
+                let data = tensor.data.clone();
                 if data.is_empty() {
                     return Err(ImportError {
                         message: format!(
                             "tensor '{}' has no data (external data not found?)",
-                            wi.initializer_name
+                            wi.tensor_name
                         ),
                     });
                 }
@@ -264,6 +339,14 @@ pub fn import_onnx(
             for out in &node.output {
                 output_map.insert(out.clone(), layer_id.clone());
             }
+            if let Some(next_index) = fused_bias.as_ref().and_then(|_| node_index.checked_add(1))
+                && let Some(add_node) = graph.node.get(next_index)
+            {
+                for out in &add_node.output {
+                    output_map.insert(out.clone(), layer_id.clone());
+                }
+                skip_nodes.insert(next_index);
+            }
 
             // Build connections from ONNX inputs
             let mut sources: Vec<String> = Vec::new();
@@ -295,11 +378,13 @@ pub fn import_onnx(
                     output_map.insert(out.clone(), src.clone());
                 }
             }
-            // Add as comment
-            layers.push(LayerDef {
-                id: String::new(),
-                def: format!("// UNSUPPORTED: {}({})", node.op_type, node.name),
-            });
+            if !matches!(node.op_type.as_str(), "QuantizeLinear" | "DequantizeLinear") {
+                // Add as comment
+                layers.push(LayerDef {
+                    id: String::new(),
+                    def: format!("// UNSUPPORTED: {}({})", node.op_type, node.name),
+                });
+            }
         }
     }
 
@@ -372,7 +457,7 @@ struct Connection {
 }
 
 struct WeightRef {
-    initializer_name: String,
+    tensor_name: String,
     param_name: String,
     transpose: bool,
     /// When set, the Dense weight rows are permuted from CHW to HWC flatten order.
@@ -380,11 +465,19 @@ struct WeightRef {
     chw_to_hwc: Option<(usize, usize, usize)>,
 }
 
+#[derive(Clone)]
+struct ResolvedTensor {
+    dims: Vec<i64>,
+    data: Vec<f32>,
+}
+
 fn map_node(
     node: &NodeProto,
-    initializers: &HashMap<&str, &TensorProto>,
+    resolved_tensors: &HashMap<String, ResolvedTensor>,
     counter: &mut HashMap<String, usize>,
     flatten_shapes: &HashMap<String, (usize, usize, usize)>,
+    tensor_shapes: &HashMap<String, Vec<i64>>,
+    fused_bias: Option<&str>,
 ) -> Result<(String, Option<String>, Vec<WeightRef>), ImportError> {
     let op = node.op_type.as_str();
     let layer_id = make_layer_id(node, op, counter);
@@ -408,7 +501,7 @@ fn map_node(
                 .copied();
             // Weight is typically the second input
             if let Some(w_name) = node.input.get(1)
-                && let Some(tensor) = initializers.get(w_name.as_str())
+                && let Some(tensor) = resolved_tensors.get(w_name.as_str())
             {
                 // transB=1: shape [out, in], first dim is units
                 // transB=0: shape [in, out], last dim is units
@@ -418,20 +511,39 @@ fn map_node(
                     *tensor.dims.last().unwrap_or(&0) as usize
                 };
                 weights.push(WeightRef {
-                    initializer_name: w_name.clone(),
+                    tensor_name: w_name.clone(),
                     param_name: "weight".to_string(),
                     transpose: trans_b != 0,
                     chw_to_hwc: chw_permute,
                 });
             }
             if let Some(b_name) = node.input.get(2)
-                && initializers.contains_key(b_name.as_str())
+                && resolved_tensors.contains_key(b_name.as_str())
             {
                 weights.push(WeightRef {
-                    initializer_name: b_name.clone(),
+                    tensor_name: b_name.clone(),
                     param_name: "bias".to_string(),
                     transpose: false,
                     chw_to_hwc: None,
+                });
+            }
+            if let Some(bias_name) = fused_bias
+                && resolved_tensors.contains_key(bias_name)
+                && !weights.iter().any(|weight| weight.param_name == "bias")
+            {
+                weights.push(WeightRef {
+                    tensor_name: bias_name.to_string(),
+                    param_name: "bias".to_string(),
+                    transpose: false,
+                    chw_to_hwc: None,
+                });
+            }
+            if weights.iter().any(|w| w.param_name == "weight") && units == 0 {
+                return Err(ImportError {
+                    message: format!(
+                        "cannot infer Dense units for `{}` from ONNX weights",
+                        node.name
+                    ),
                 });
             }
             Ok((layer_id, Some(format!("Dense(units: {units})")), weights))
@@ -440,7 +552,7 @@ fn map_node(
             if node
                 .input
                 .get(1)
-                .and_then(|w| initializers.get(w.as_str()))
+                .and_then(|w| resolved_tensors.get(w.as_str()))
                 .is_some_and(|t| t.dims.len() == 3) =>
         {
             let mut weights = Vec::new();
@@ -450,27 +562,36 @@ fn map_node(
             let mut padding = "valid";
 
             if let Some(w_name) = node.input.get(1)
-                && let Some(tensor) = initializers.get(w_name.as_str())
+                && let Some(tensor) = resolved_tensors.get(w_name.as_str())
             {
                 filters = tensor.dims.first().copied().unwrap_or(0) as usize;
                 if tensor.dims.len() >= 3 {
                     kernel = tensor.dims[2] as usize;
                 }
                 weights.push(WeightRef {
-                    initializer_name: w_name.clone(),
+                    tensor_name: w_name.clone(),
                     param_name: "weight".to_string(),
                     transpose: false,
                     chw_to_hwc: None,
                 });
             }
             if let Some(b_name) = node.input.get(2)
-                && initializers.contains_key(b_name.as_str())
+                && resolved_tensors.contains_key(b_name.as_str())
             {
                 weights.push(WeightRef {
-                    initializer_name: b_name.clone(),
+                    tensor_name: b_name.clone(),
                     param_name: "bias".to_string(),
                     transpose: false,
                     chw_to_hwc: None,
+                });
+            }
+
+            if weights.iter().any(|w| w.param_name == "weight") && filters == 0 {
+                return Err(ImportError {
+                    message: format!(
+                        "cannot infer Conv1D filters for `{}` from ONNX weights",
+                        node.name
+                    ),
                 });
             }
 
@@ -509,27 +630,36 @@ fn map_node(
             let mut groups = 1usize;
 
             if let Some(w_name) = node.input.get(1)
-                && let Some(tensor) = initializers.get(w_name.as_str())
+                && let Some(tensor) = resolved_tensors.get(w_name.as_str())
             {
                 filters = tensor.dims.first().copied().unwrap_or(0) as usize;
                 if tensor.dims.len() >= 4 {
                     kernel = tensor.dims[2] as usize;
                 }
                 weights.push(WeightRef {
-                    initializer_name: w_name.clone(),
+                    tensor_name: w_name.clone(),
                     param_name: "weight".to_string(),
                     transpose: false,
                     chw_to_hwc: None,
                 });
             }
             if let Some(b_name) = node.input.get(2)
-                && initializers.contains_key(b_name.as_str())
+                && resolved_tensors.contains_key(b_name.as_str())
             {
                 weights.push(WeightRef {
-                    initializer_name: b_name.clone(),
+                    tensor_name: b_name.clone(),
                     param_name: "bias".to_string(),
                     transpose: false,
                     chw_to_hwc: None,
+                });
+            }
+
+            if weights.iter().any(|w| w.param_name == "weight") && filters == 0 {
+                return Err(ImportError {
+                    message: format!(
+                        "cannot infer Conv2D filters for `{}` from ONNX weights",
+                        node.name
+                    ),
                 });
             }
 
@@ -590,44 +720,67 @@ fn map_node(
         }
         "MaxPool" => {
             let mut kernel = 2;
+            let mut stride = None;
             for attr in &node.attribute {
-                if attr.name == "kernel_shape"
-                    && let Some(&k) = attr.ints.first()
-                {
-                    kernel = k as usize;
+                match attr.name.as_str() {
+                    "kernel_shape" => {
+                        if let Some(&k) = attr.ints.first() {
+                            kernel = k as usize;
+                        }
+                    }
+                    "strides" => {
+                        if let Some(&s) = attr.ints.first() {
+                            stride = Some(s as usize);
+                        }
+                    }
+                    _ => {}
                 }
             }
+            let stride_str = stride.map(|s| format!(", stride: {s}")).unwrap_or_default();
             Ok((
                 layer_id,
-                Some(format!("MaxPool2D(kernel: {kernel})")),
+                Some(format!("MaxPool2D(kernel: {kernel}{stride_str})")),
                 Vec::new(),
             ))
         }
         "AveragePool" => {
             let mut kernel = 2;
+            let mut stride = None;
             for attr in &node.attribute {
-                if attr.name == "kernel_shape"
-                    && let Some(&k) = attr.ints.first()
-                {
-                    kernel = k as usize;
+                match attr.name.as_str() {
+                    "kernel_shape" => {
+                        if let Some(&k) = attr.ints.first() {
+                            kernel = k as usize;
+                        }
+                    }
+                    "strides" => {
+                        if let Some(&s) = attr.ints.first() {
+                            stride = Some(s as usize);
+                        }
+                    }
+                    _ => {}
                 }
             }
+            let stride_str = stride.map(|s| format!(", stride: {s}")).unwrap_or_default();
             Ok((
                 layer_id,
-                Some(format!("AvgPool2D(kernel: {kernel})")),
+                Some(format!("AvgPool2D(kernel: {kernel}{stride_str})")),
                 Vec::new(),
             ))
         }
         "Flatten" => Ok((layer_id, Some("Flatten()".to_string()), Vec::new())),
+        "Reshape" if should_lower_reshape_to_flatten(node, tensor_shapes, resolved_tensors) => {
+            Ok((layer_id, Some("Flatten()".to_string()), Vec::new()))
+        }
         "BatchNormalization" => {
             let mut weights = Vec::new();
             let param_names = ["scale", "bias", "mean", "var"];
             for (i, pname) in param_names.iter().enumerate() {
                 if let Some(inp_name) = node.input.get(i + 1)
-                    && initializers.contains_key(inp_name.as_str())
+                    && resolved_tensors.contains_key(inp_name.as_str())
                 {
                     weights.push(WeightRef {
-                        initializer_name: inp_name.clone(),
+                        tensor_name: inp_name.clone(),
                         param_name: pname.to_string(),
                         transpose: false,
                         chw_to_hwc: None,
@@ -650,10 +803,28 @@ fn map_node(
             ))
         }
         "Add" => Ok((layer_id, Some("Add()".to_string()), Vec::new())),
-        "Concat" => Ok((layer_id, Some("Concat()".to_string()), Vec::new())),
+        "Concat" => {
+            let axis = remap_axis_for_shape(
+                node,
+                tensor_shapes
+                    .get(node.input[0].as_str())
+                    .unwrap_or(&Vec::new()),
+            )
+            .unwrap_or(-1);
+            Ok((layer_id, Some(format!("Concat(axis: {axis})")), Vec::new()))
+        }
         "Relu" => Ok((layer_id, Some("ReLU()".to_string()), Vec::new())),
         "Sigmoid" => Ok((layer_id, Some("Sigmoid()".to_string()), Vec::new())),
-        "Softmax" => Ok((layer_id, Some("Softmax()".to_string()), Vec::new())),
+        "Softmax" => {
+            let axis = remap_axis_for_shape(
+                node,
+                tensor_shapes
+                    .get(node.input[0].as_str())
+                    .unwrap_or(&Vec::new()),
+            )
+            .unwrap_or(-1);
+            Ok((layer_id, Some(format!("Softmax(axis: {axis})")), Vec::new()))
+        }
         "GlobalAveragePool" => Ok((layer_id, Some("GlobalAvgPool2D()".to_string()), Vec::new())),
         "LeakyRelu" => {
             let alpha = node
@@ -699,20 +870,20 @@ fn map_node(
                 .unwrap_or(1e-5);
             let mut weights = Vec::new();
             if let Some(s_name) = node.input.get(1)
-                && initializers.contains_key(s_name.as_str())
+                && resolved_tensors.contains_key(s_name.as_str())
             {
                 weights.push(WeightRef {
-                    initializer_name: s_name.clone(),
+                    tensor_name: s_name.clone(),
                     param_name: "scale".to_string(),
                     transpose: false,
                     chw_to_hwc: None,
                 });
             }
             if let Some(b_name) = node.input.get(2)
-                && initializers.contains_key(b_name.as_str())
+                && resolved_tensors.contains_key(b_name.as_str())
             {
                 weights.push(WeightRef {
-                    initializer_name: b_name.clone(),
+                    tensor_name: b_name.clone(),
                     param_name: "bias".to_string(),
                     transpose: false,
                     chw_to_hwc: None,
@@ -736,8 +907,8 @@ fn map_node(
             // Try scales from initializer input (Upsample opset 9+, Resize)
             let scales_idx = if op == "Resize" { 2 } else { 1 };
             if let Some(scales_name) = node.input.get(scales_idx)
-                && let Some(tensor) = initializers.get(scales_name.as_str())
-                && let Some(&s) = tensor.float_data.get(2)
+                && let Some(tensor) = resolved_tensors.get(scales_name.as_str())
+                && let Some(&s) = tensor.data.get(2)
             {
                 scale = s as usize;
             }
@@ -748,6 +919,251 @@ fn map_node(
             ))
         }
         _ => Ok((layer_id, None, Vec::new())),
+    }
+}
+
+fn build_resolved_tensors(
+    nodes: &[NodeProto],
+    initializers: &HashMap<&str, &TensorProto>,
+    onnx_dir: &Path,
+) -> Result<HashMap<String, ResolvedTensor>, ImportError> {
+    let mut resolved = HashMap::new();
+
+    for (&name, tensor) in initializers {
+        resolved.insert(
+            name.to_string(),
+            ResolvedTensor {
+                dims: tensor.dims.clone(),
+                data: decode_tensor_data(tensor, onnx_dir)?,
+            },
+        );
+    }
+
+    for node in nodes {
+        if node.op_type != "DequantizeLinear" {
+            continue;
+        }
+        let (Some(input_name), Some(scale_name), Some(output_name)) =
+            (node.input.first(), node.input.get(1), node.output.first())
+        else {
+            continue;
+        };
+        let Some(input_tensor) = resolved.get(input_name).cloned() else {
+            continue;
+        };
+        let Some(scale_tensor) = resolved.get(scale_name) else {
+            continue;
+        };
+        let zero_point_tensor = node.input.get(2).and_then(|name| resolved.get(name));
+        let axis = node
+            .attribute
+            .iter()
+            .find(|attr| attr.name == "axis")
+            .map(|attr| attr.i)
+            .unwrap_or(1);
+        let data = dequantize_tensor(
+            &input_tensor.data,
+            &input_tensor.dims,
+            &scale_tensor.data,
+            zero_point_tensor.map(|tensor| tensor.data.as_slice()),
+            axis,
+        )?;
+        resolved.insert(
+            output_name.clone(),
+            ResolvedTensor {
+                dims: input_tensor.dims,
+                data,
+            },
+        );
+    }
+
+    Ok(resolved)
+}
+
+fn decode_tensor_data(tensor: &TensorProto, onnx_dir: &Path) -> Result<Vec<f32>, ImportError> {
+    match tensor.data_type {
+        1 => Ok(tensor.to_f32_vec(onnx_dir)),
+        2 => Ok(tensor.raw_data.iter().map(|&v| v as f32).collect()),
+        3 => Ok(tensor.raw_data.iter().map(|&v| (v as i8) as f32).collect()),
+        6 => Ok(tensor
+            .raw_data
+            .chunks_exact(4)
+            .map(|c| i32::from_le_bytes(c.try_into().unwrap()) as f32)
+            .collect()),
+        7 => Ok(tensor
+            .raw_data
+            .chunks_exact(8)
+            .map(|c| i64::from_le_bytes(c.try_into().unwrap()) as f32)
+            .collect()),
+        other => Err(ImportError {
+            message: format!(
+                "unsupported ONNX tensor data type {other} for `{}`",
+                tensor.name
+            ),
+        }),
+    }
+}
+
+fn dequantize_tensor(
+    data: &[f32],
+    dims: &[i64],
+    scales: &[f32],
+    zero_points: Option<&[f32]>,
+    axis: i64,
+) -> Result<Vec<f32>, ImportError> {
+    if scales.is_empty() {
+        return Err(ImportError {
+            message: "DequantizeLinear is missing scale data".to_string(),
+        });
+    }
+
+    let zeros_storage;
+    let zeros = if let Some(zp) = zero_points {
+        zp
+    } else {
+        zeros_storage = vec![0.0f32; scales.len()];
+        &zeros_storage
+    };
+
+    if scales.len() != 1 && scales.len() != zeros.len() {
+        return Err(ImportError {
+            message: "DequantizeLinear scale and zero-point sizes differ".to_string(),
+        });
+    }
+
+    if scales.len() == 1 {
+        let scale = scales[0];
+        let zero = zeros[0];
+        return Ok(data.iter().map(|value| (value - zero) * scale).collect());
+    }
+
+    let axis = normalize_axis(axis, dims.len());
+    let axis_len = dims.get(axis).copied().unwrap_or(0) as usize;
+    if axis_len != scales.len() {
+        return Err(ImportError {
+            message: format!(
+                "DequantizeLinear axis length {} does not match scale length {}",
+                axis_len,
+                scales.len()
+            ),
+        });
+    }
+
+    let inner_stride = dims[axis + 1..]
+        .iter()
+        .fold(1usize, |acc, dim| acc.saturating_mul(*dim as usize));
+    let outer_stride = if axis_len == 0 {
+        0
+    } else {
+        inner_stride * axis_len
+    };
+    let mut out = Vec::with_capacity(data.len());
+
+    for (index, value) in data.iter().enumerate() {
+        let axis_index = if outer_stride == 0 {
+            0
+        } else {
+            (index % outer_stride) / inner_stride
+        };
+        out.push((value - zeros[axis_index]) * scales[axis_index]);
+    }
+    Ok(out)
+}
+
+fn remap_axis_for_shape(node: &NodeProto, input_shape: &[i64]) -> Option<i64> {
+    let axis = node
+        .attribute
+        .iter()
+        .find(|attr| attr.name == "axis")
+        .map(|attr| attr.i)
+        .unwrap_or(-1);
+
+    if input_shape.is_empty() {
+        return Some(axis);
+    }
+
+    let rank = input_shape.len();
+    let normalized = normalize_axis(axis, rank);
+    if rank <= 1 {
+        return Some(normalized as i64);
+    }
+    if normalized == 0 {
+        return None;
+    }
+    if rank == 4 {
+        return Some(match normalized {
+            1 => 2,
+            2 => 0,
+            3 => 1,
+            _ => normalized as i64 - 1,
+        });
+    }
+    Some((normalized - 1) as i64)
+}
+
+fn should_lower_reshape_to_flatten(
+    node: &NodeProto,
+    tensor_shapes: &HashMap<String, Vec<i64>>,
+    resolved_tensors: &HashMap<String, ResolvedTensor>,
+) -> bool {
+    let Some(input_name) = node.input.first() else {
+        return false;
+    };
+    let Some(input_shape) = tensor_shapes.get(input_name.as_str()) else {
+        return false;
+    };
+    if input_shape.len() < 3 {
+        return false;
+    }
+    let Some(shape_name) = node.input.get(1) else {
+        return false;
+    };
+    let Some(target_shape) = resolved_tensors.get(shape_name.as_str()) else {
+        return false;
+    };
+    let target_dims: Vec<i64> = target_shape
+        .data
+        .iter()
+        .map(|value| *value as i64)
+        .collect();
+    if target_dims.len() != 2 {
+        return false;
+    }
+    let batch = input_shape[0];
+    let flattened: i64 = input_shape.iter().skip(1).product();
+    (target_dims[0] == batch || target_dims[0] == 1) && target_dims[1] == flattened
+}
+
+fn find_fusable_add_bias(
+    node_index: usize,
+    nodes: &[NodeProto],
+    resolved_tensors: &HashMap<String, ResolvedTensor>,
+) -> Option<String> {
+    let node = nodes.get(node_index)?;
+    if !matches!(node.op_type.as_str(), "Gemm" | "MatMul") {
+        return None;
+    }
+    let next = nodes.get(node_index + 1)?;
+    if next.op_type != "Add" || node.output.len() != 1 {
+        return None;
+    }
+    let output_name = node.output.first()?;
+    let left = next.input.first()?;
+    let right = next.input.get(1)?;
+    if left == output_name && resolved_tensors.contains_key(right.as_str()) {
+        return Some(right.clone());
+    }
+    if right == output_name && resolved_tensors.contains_key(left.as_str()) {
+        return Some(left.clone());
+    }
+    None
+}
+
+fn normalize_axis(axis: i64, rank: usize) -> usize {
+    if axis < 0 {
+        (rank as i64 + axis) as usize
+    } else {
+        axis as usize
     }
 }
 
@@ -807,8 +1223,7 @@ fn sanitize_id(name: &str) -> String {
 }
 
 fn detect_input_shape(graph: &onnx::GraphProto) -> Vec<String> {
-    let init_names: std::collections::HashSet<&str> =
-        graph.initializer.iter().map(|t| t.name.as_str()).collect();
+    let init_names: HashSet<&str> = graph.initializer.iter().map(|t| t.name.as_str()).collect();
 
     for inp in &graph.input {
         if init_names.contains(inp.name.as_str()) {
@@ -820,20 +1235,27 @@ fn detect_input_shape(graph: &onnx::GraphProto) -> Vec<String> {
         {
             // Skip the first dimension (batch) — it's either
             // a symbolic param or a concrete 1.
-            let dims: Vec<String> = shape
+            let dims: Vec<i64> = shape
                 .dim
                 .iter()
                 .skip(1)
                 .filter_map(|d| {
                     if d.dim_value > 0 {
-                        Some(d.dim_value.to_string())
+                        Some(d.dim_value)
                     } else {
                         None
                     }
                 })
                 .collect();
             if !dims.is_empty() {
-                return dims;
+                if dims.len() == 3 {
+                    return vec![
+                        dims[1].to_string(),
+                        dims[2].to_string(),
+                        dims[0].to_string(),
+                    ];
+                }
+                return dims.into_iter().map(|dim| dim.to_string()).collect();
             }
         }
     }
@@ -944,4 +1366,267 @@ fn write_weight_npy(path: &Path, shape: &[u64], data: &[f32]) -> Result<(), Impo
         message: format!("npy write error: {e}"),
     })?;
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::import::onnx::{
+        AttributeProto, Dimension, GraphProto, TensorShapeProto, TensorTypeProto, TypeProto,
+        ValueInfoProto,
+    };
+    use tempfile::tempdir;
+
+    #[test]
+    fn import_remaps_nchw_input_concat_and_pool_stride() {
+        let model = ModelProto {
+            ir_version: 8,
+            opset_import: Vec::new(),
+            graph: Some(GraphProto {
+                name: "cnn".to_string(),
+                input: vec![value_info("input", &[1, 3, 8, 8])],
+                output: Vec::new(),
+                initializer: vec![float_tensor("conv_w", &[4, 3, 1, 1], &[1.0; 12])],
+                node: vec![
+                    node(
+                        "conv",
+                        "Conv",
+                        &["input", "conv_w"],
+                        &["conv_out"],
+                        &[ints_attr("kernel_shape", &[1, 1])],
+                    ),
+                    node(
+                        "pool",
+                        "MaxPool",
+                        &["conv_out"],
+                        &["pool_out"],
+                        &[
+                            ints_attr("kernel_shape", &[3, 3]),
+                            ints_attr("strides", &[2, 2]),
+                        ],
+                    ),
+                    node(
+                        "cat",
+                        "Concat",
+                        &["conv_out", "conv_out"],
+                        &["cat_out"],
+                        &[int_attr("axis", 1)],
+                    ),
+                ],
+            }),
+        };
+
+        let imported = import_model_to_string(&model).unwrap();
+        assert!(imported.contains("Input(shape: [8, 8, 3])"));
+        assert!(imported.contains("MaxPool2D(kernel: 3, stride: 2)"));
+        assert!(imported.contains("Concat(axis: 2)"));
+    }
+
+    #[test]
+    fn import_fails_early_when_conv_weight_shape_is_invalid() {
+        let model = ModelProto {
+            ir_version: 8,
+            opset_import: Vec::new(),
+            graph: Some(GraphProto {
+                name: "bad_conv".to_string(),
+                input: vec![value_info("input", &[1, 3, 8, 8])],
+                output: Vec::new(),
+                initializer: vec![float_tensor("conv_w", &[0, 3, 1, 1], &[])],
+                node: vec![node(
+                    "conv",
+                    "Conv",
+                    &["input", "conv_w"],
+                    &["conv_out"],
+                    &[ints_attr("kernel_shape", &[1, 1])],
+                )],
+            }),
+        };
+
+        let err = import_model_to_string(&model).unwrap_err();
+        assert!(err.message.contains("cannot infer Conv2D filters"));
+    }
+
+    #[test]
+    fn import_dequantizes_initializer_backed_conv_weights() {
+        let model = ModelProto {
+            ir_version: 8,
+            opset_import: Vec::new(),
+            graph: Some(GraphProto {
+                name: "qdq_conv".to_string(),
+                input: vec![value_info("input", &[1, 3, 8, 8])],
+                output: Vec::new(),
+                initializer: vec![
+                    uint8_tensor("conv_w_q", &[4, 3, 1, 1], &[2; 12]),
+                    float_tensor("conv_scale", &[1], &[0.5]),
+                    uint8_tensor("conv_zp", &[1], &[1]),
+                ],
+                node: vec![
+                    node(
+                        "dq_w",
+                        "DequantizeLinear",
+                        &["conv_w_q", "conv_scale", "conv_zp"],
+                        &["conv_w"],
+                        &[],
+                    ),
+                    node(
+                        "conv",
+                        "Conv",
+                        &["input", "conv_w"],
+                        &["conv_out"],
+                        &[ints_attr("kernel_shape", &[1, 1])],
+                    ),
+                ],
+            }),
+        };
+
+        let tmp = tempdir().unwrap();
+        let onnx_path = tmp.path().join("model.onnx");
+        let output_path = tmp.path().join("model.nnl");
+        let weights_dir = tmp.path().join("weights");
+        fs::write(&onnx_path, model.encode_to_vec()).unwrap();
+
+        import_onnx(&onnx_path, &output_path, &weights_dir).unwrap();
+        let imported = fs::read_to_string(&output_path).unwrap();
+        assert!(imported.contains("Conv2D(filters: 4, kernel: 1, stride: 1, padding: \"valid\")"));
+        assert!(!imported.contains("UNSUPPORTED: DequantizeLinear"));
+        assert!(weights_dir.join("conv.weight.npy").exists());
+    }
+
+    #[test]
+    fn import_lowers_classifier_tail_reshape_and_fuses_bias_add() {
+        let model = ModelProto {
+            ir_version: 8,
+            opset_import: Vec::new(),
+            graph: Some(GraphProto {
+                name: "classifier_tail".to_string(),
+                input: vec![value_info("input", &[1, 4, 1, 1])],
+                output: Vec::new(),
+                initializer: vec![
+                    int64_tensor("shape", &[2], &[1, 4]),
+                    float_tensor(
+                        "dense_w",
+                        &[4, 3],
+                        &[1.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 1.0, 1.0, 1.0, 1.0],
+                    ),
+                    float_tensor("dense_b", &[3], &[0.5, 1.5, 2.5]),
+                ],
+                node: vec![
+                    node("reshape", "Reshape", &["input", "shape"], &["flat"], &[]),
+                    node("matmul", "MatMul", &["flat", "dense_w"], &["mm_out"], &[]),
+                    node("bias_add", "Add", &["mm_out", "dense_b"], &["biased"], &[]),
+                ],
+            }),
+        };
+
+        let imported = import_model_to_string(&model).unwrap();
+        assert!(imported.contains("Flatten()"));
+        assert!(imported.contains("Dense(units: 3)"));
+        assert!(!imported.contains("layer bias_add = Add()"));
+    }
+
+    fn import_model_to_string(model: &ModelProto) -> Result<String, ImportError> {
+        let tmp = tempdir().unwrap();
+        let onnx_path = tmp.path().join("model.onnx");
+        let output_path = tmp.path().join("model.nnl");
+        let weights_dir = tmp.path().join("weights");
+        fs::write(&onnx_path, model.encode_to_vec()).unwrap();
+        import_onnx(&onnx_path, &output_path, &weights_dir)?;
+        Ok(fs::read_to_string(output_path).unwrap())
+    }
+
+    fn value_info(name: &str, dims: &[i64]) -> ValueInfoProto {
+        ValueInfoProto {
+            name: name.to_string(),
+            r#type: Some(TypeProto {
+                tensor_type: Some(TensorTypeProto {
+                    elem_type: 1,
+                    shape: Some(TensorShapeProto {
+                        dim: dims
+                            .iter()
+                            .map(|&dim_value| Dimension {
+                                dim_value,
+                                dim_param: String::new(),
+                            })
+                            .collect(),
+                    }),
+                }),
+            }),
+        }
+    }
+
+    fn float_tensor(name: &str, dims: &[i64], data: &[f32]) -> TensorProto {
+        TensorProto {
+            dims: dims.to_vec(),
+            data_type: 1,
+            name: name.to_string(),
+            raw_data: data.iter().flat_map(|value| value.to_le_bytes()).collect(),
+            float_data: Vec::new(),
+            external_data: Vec::new(),
+            data_location: 0,
+        }
+    }
+
+    fn uint8_tensor(name: &str, dims: &[i64], data: &[u8]) -> TensorProto {
+        TensorProto {
+            dims: dims.to_vec(),
+            data_type: 2,
+            name: name.to_string(),
+            raw_data: data.to_vec(),
+            float_data: Vec::new(),
+            external_data: Vec::new(),
+            data_location: 0,
+        }
+    }
+
+    fn int64_tensor(name: &str, dims: &[i64], data: &[i64]) -> TensorProto {
+        TensorProto {
+            dims: dims.to_vec(),
+            data_type: 7,
+            name: name.to_string(),
+            raw_data: data.iter().flat_map(|value| value.to_le_bytes()).collect(),
+            float_data: Vec::new(),
+            external_data: Vec::new(),
+            data_location: 0,
+        }
+    }
+
+    fn node(
+        name: &str,
+        op_type: &str,
+        inputs: &[&str],
+        outputs: &[&str],
+        attribute: &[AttributeProto],
+    ) -> NodeProto {
+        NodeProto {
+            input: inputs.iter().map(|s| (*s).to_string()).collect(),
+            output: outputs.iter().map(|s| (*s).to_string()).collect(),
+            name: name.to_string(),
+            op_type: op_type.to_string(),
+            attribute: attribute.to_vec(),
+        }
+    }
+
+    fn ints_attr(name: &str, ints: &[i64]) -> AttributeProto {
+        AttributeProto {
+            name: name.to_string(),
+            f: 0.0,
+            i: 0,
+            s: Vec::new(),
+            floats: Vec::new(),
+            ints: ints.to_vec(),
+            r#type: 0,
+        }
+    }
+
+    fn int_attr(name: &str, value: i64) -> AttributeProto {
+        AttributeProto {
+            name: name.to_string(),
+            f: 0.0,
+            i: value,
+            s: Vec::new(),
+            floats: Vec::new(),
+            ints: Vec::new(),
+            r#type: 0,
+        }
+    }
 }
